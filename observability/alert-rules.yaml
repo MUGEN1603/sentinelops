@@ -1,0 +1,76 @@
+## Alert Rules for SentinelOps — applied via PrometheusRule CRD
+## The label `release: kube-prometheus` must match the Prometheus operator's ruleSelector
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: sentinelops-alerts
+  namespace: observability
+  labels:
+    release: kube-prometheus   # REQUIRED: matches prometheus-values.yaml ruleSelector
+    app: kube-prometheus-stack
+spec:
+  groups:
+    # ── Pod Health Alerts ─────────────────────────────────────────────────────
+    - name: sentinelops.pod-health
+      interval: 30s
+      rules:
+        # Fires when any pod in the 'apps' namespace is restarting at a non-zero rate
+        - alert: PodCrashLooping
+          expr: |
+            rate(kube_pod_container_status_restarts_total{namespace="apps"}[5m]) > 0
+          for: 2m
+          labels:
+            severity: critical
+            team: sentinelops
+          annotations:
+            summary: "Pod {{ $labels.pod }} is crash looping"
+            description: >
+              Pod {{ $labels.pod }} in namespace {{ $labels.namespace }}
+              has restarted {{ $value | humanize }} times in the last 5 minutes.
+            runbook: "https://github.com/<your-username>/sentinelops/blob/main/docs/runbook.md"
+
+        # Fires when a pod's memory usage exceeds 90% of its configured limit
+        - alert: HighMemoryUsage
+          expr: |
+            (
+              container_memory_usage_bytes{namespace="apps", container!=""}
+              /
+              container_spec_memory_limit_bytes{namespace="apps", container!=""}
+            ) > 0.9
+          for: 3m
+          labels:
+            severity: warning
+            team: sentinelops
+          annotations:
+            summary: "Pod {{ $labels.pod }} memory usage above 90%"
+            description: >
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              is using {{ $value | humanizePercentage }} of its memory limit.
+
+        # Fires when a pod has been in OOMKilled state
+        - alert: PodOOMKilled
+          expr: |
+            kube_pod_container_status_last_terminated_reason{reason="OOMKilled", namespace="apps"} > 0
+          for: 0m
+          labels:
+            severity: critical
+            team: sentinelops
+          annotations:
+            summary: "Pod {{ $labels.pod }} was OOMKilled"
+            description: >
+              Container {{ $labels.container }} in pod {{ $labels.pod }}
+              was terminated due to out-of-memory. Memory limit may need to be increased.
+
+    # ── Kubernetes Node Alerts ────────────────────────────────────────────────
+    - name: sentinelops.node-health
+      interval: 60s
+      rules:
+        - alert: NodeNotReady
+          expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+          for: 5m
+          labels:
+            severity: critical
+            team: sentinelops
+          annotations:
+            summary: "Node {{ $labels.node }} is not Ready"
+            description: "Node {{ $labels.node }} has been in NotReady state for more than 5 minutes."

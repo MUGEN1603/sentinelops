@@ -1,0 +1,189 @@
+"""
+agents/policy_review_agent.py — LangGraph node: policy_review_agent
+
+Responsibility:
+  Submit the proposed remediation to OPA for policy evaluation.
+  If allowed, call the GitHub PR bridge to create a remediation PR.
+  If denied, log the rejection and (optionally) notify Slack.
+
+Input state keys consumed:
+  - incident (dict): The Incident object
+  - proposed_patch (str): YAML patch from remediation_agent
+  - patch_type (str): Patch type identifier
+  - risk_level (str): "low" | "medium" | "high"
+  - rca (str): Root cause analysis (used for PR description)
+
+Output state keys written:
+  - policy_allowed (bool): OPA decision
+  - policy_reasons (List[str]): OPA deny reasons (empty if allowed)
+  - gitops_change (dict | None): GitOpsChange dict if PR was created
+"""
+
+import json
+import logging
+import os
+
+import requests
+
+from agents.contracts import GitOpsChange
+
+log = logging.getLogger("policy-review-agent")
+
+OPA_URL      = os.getenv("OPA_URL", "http://localhost:8181")
+SLACK_WEBHOOK = os.getenv("SLACK_WEBHOOK_URL", "")   # optional — set to notify on deny
+
+
+def query_opa(action: str, risk_level: str, namespace: str) -> tuple[bool, list[str]]:
+    """
+    Submit a policy query to OPA and return (allowed, deny_reasons).
+
+    OPA endpoint: POST /v1/data/sentinelops/remediation/allow
+    """
+    opa_input = {
+        "input": {
+            "action":     action,
+            "risk_level": risk_level,
+            "namespace":  namespace,
+        }
+    }
+    try:
+        resp = requests.post(
+            f"{OPA_URL}/v1/data/sentinelops/remediation/allow",
+            json=opa_input,
+            timeout=5
+        )
+        resp.raise_for_status()
+        allowed = bool(resp.json().get("result", False))
+        log.info("OPA decision: allowed=%s action=%s risk=%s ns=%s",
+                 allowed, action, risk_level, namespace)
+
+        # Also fetch deny reasons if rejected
+        reasons: list[str] = []
+        if not allowed:
+            deny_resp = requests.post(
+                f"{OPA_URL}/v1/data/sentinelops/remediation/deny_reason",
+                json=opa_input,
+                timeout=5
+            )
+            reasons = list(deny_resp.json().get("result", {}).keys())
+
+        return allowed, reasons
+
+    except requests.exceptions.ConnectionError:
+        # OPA unreachable → FAIL CLOSED (deny by default)
+        log.error("OPA unreachable at %s — failing closed (deny)", OPA_URL)
+        return False, ["OPA server unreachable — failing closed"]
+    except Exception as exc:
+        log.error("OPA query failed: %s", exc)
+        return False, [f"OPA query error: {exc}"]
+
+
+def notify_slack_rejection(incident_id: str, reasons: list[str]) -> None:
+    """Send a Slack notification when a remediation is rejected."""
+    if not SLACK_WEBHOOK:
+        return
+    message = {
+        "text": (
+            f":no_entry: *SentinelOps Remediation Rejected*\n"
+            f"Incident: `{incident_id}`\n"
+            f"Reasons:\n" + "\n".join(f"  • {r}" for r in reasons)
+        )
+    }
+    try:
+        requests.post(SLACK_WEBHOOK, json=message, timeout=5)
+        log.info("Slack rejection notification sent for incident=%s", incident_id)
+    except Exception as exc:
+        log.warning("Slack notification failed: %s", exc)
+
+
+def policy_review_agent(state: dict) -> dict:
+    """
+    LangGraph node function for OPA policy review and PR creation.
+
+    Query OPA with the remediation action, risk level, and namespace.
+    If allowed: call the GitOps bridge to create a GitHub PR.
+    If denied: log rejection, notify Slack, store reasons in state.
+    """
+    incident   = state.get("incident", {})
+    patch_type = state.get("patch_type", "other")
+    risk_level = state.get("risk_level", "high")
+    namespace  = incident.get("namespace", "unknown")
+
+    log.info("Policy review for incident=%s patch_type=%s risk=%s ns=%s",
+             incident.get("id"), patch_type, risk_level, namespace)
+
+    # ── OPA evaluation ────────────────────────────────────────────────────────
+    allowed, reasons = query_opa(patch_type, risk_level, namespace)
+
+    state["policy_allowed"] = allowed
+    state["policy_reasons"] = reasons
+
+    if not allowed:
+        log.warning("Remediation DENIED for incident=%s reasons=%s",
+                    incident.get("id"), reasons)
+        notify_slack_rejection(incident.get("id", "unknown"), reasons)
+        state["gitops_change"] = None
+        return state
+
+    # ── Create GitHub PR ──────────────────────────────────────────────────────
+    log.info("Remediation APPROVED — creating GitHub PR for incident=%s", incident.get("id"))
+
+    try:
+        from agents.gitops_bridge import open_remediation_pr
+
+        repo_name  = os.getenv("GITHUB_REPO", "<your-username>/sentinelops")
+        file_path  = "gitops/manifests/sample-app-deployment.yaml"
+        new_content = state.get("proposed_patch", "")
+
+        pr_url = open_remediation_pr(
+            repo_name=repo_name,
+            incident_id=incident["id"],
+            file_path=file_path,
+            new_content=new_content,
+            rca_summary=state.get("rca", "")[:500],
+            risk_level=risk_level
+        )
+
+        gitops_change = GitOpsChange(
+            branch=f"auto-fix/{incident['id']}",
+            files_changed=[file_path],
+            pr_url=pr_url,
+            merge_status="open"
+        )
+        state["gitops_change"] = gitops_change.dict()
+        log.info("PR created: %s", pr_url)
+
+    except Exception as exc:
+        log.error("GitHub PR creation failed: %s", exc)
+        state["gitops_change"] = {
+            "branch": f"auto-fix/{incident.get('id', 'unknown')}",
+            "files_changed": [],
+            "pr_url": None,
+            "merge_status": f"error: {exc}"
+        }
+
+    # ── Store incident in Qdrant for future RAG retrieval ─────────────────────
+    try:
+        from memory.qdrant_client import store_incident
+        incident_text = (
+            f"{incident.get('workload', '')} "
+            f"{json.dumps(incident.get('alert_labels', {}))} "
+            f"{' '.join(incident.get('recent_logs', [])[:10])}"
+        )
+        store_incident(
+            incident_id=incident["id"],
+            text=incident_text,
+            rca=state.get("rca", "")[:500],
+            outcome="pr_created",
+            metadata={
+                "namespace":  namespace,
+                "severity":   state.get("severity_classification", "unknown"),
+                "patch_type": patch_type,
+                "risk_level": risk_level,
+            }
+        )
+        log.info("Incident stored in Qdrant for future retrieval")
+    except Exception as exc:
+        log.warning("Qdrant store failed (non-blocking): %s", exc)
+
+    return state

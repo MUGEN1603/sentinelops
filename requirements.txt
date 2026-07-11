@@ -1,0 +1,25 @@
+# LangGraph + AI
+langgraph>=0.2.0
+langgraph-checkpoint-sqlite>=1.0.0
+langchain-community>=0.2.0
+ollama>=0.2.0
+
+# Vector Memory
+qdrant-client>=1.9.0
+fastembed>=0.3.0
+
+# Web + API
+fastapi>=0.111.0
+uvicorn>=0.30.0
+pydantic>=2.7.0
+requests>=2.31.0
+
+# Kubernetes + GitHub
+kubernetes>=29.0.0
+PyGithub>=2.3.0
+
+# OPA (Policy)
+# OPA is run as a docker container; no Python package needed
+
+# Utilities
+python-dotenv>=1.0.0

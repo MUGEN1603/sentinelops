@@ -1,0 +1,101 @@
+## gitops/manifests/sample-app-deployment.yaml
+##
+## THIS FILE IS THE CANONICAL SOURCE OF TRUTH for the sample-app Deployment.
+## Argo CD watches this file and reconciles the live cluster to match it.
+##
+## To remediate an incident:
+##   1. The SentinelOps pipeline creates a PR that edits THIS file.
+##   2. A human (or auto-merge for low-risk) merges the PR.
+##   3. Argo CD detects the change on main and syncs the cluster.
+##   4. The live cluster state is updated without any direct kubectl commands.
+##
+## selfHeal guarantee: manually running `kubectl scale deployment sample-app --replicas=5`
+## will be reverted to the replica count defined in this file within 3 minutes.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+  namespace: apps
+  labels:
+    app: sample-app
+    version: v1
+    managed-by: sentinelops
+    gitops: "true"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sample-app
+  template:
+    metadata:
+      labels:
+        app: sample-app
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: sample-app
+          image: sentinelops/sample-app:v1
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8080
+              name: http
+
+          # ── Resource limits (intentionally low to trigger OOMKill) ───────────
+          # When /leak-memory is called 3x (3 * 50MB = 150MB > 128Mi limit),
+          # the container is OOMKilled. This fires the HighMemoryUsage + PodOOMKilled alerts.
+          # After a remediation PR is merged, the limits below will be updated by the agent.
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+          # ── Health probes ─────────────────────────────────────────────────────
+          livenessProbe:
+            httpGet:
+              path: /healthy
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /healthy
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app
+  namespace: apps
+  labels:
+    app: sample-app
+spec:
+  selector:
+    app: sample-app
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+  type: ClusterIP

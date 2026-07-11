@@ -1,0 +1,177 @@
+## OpenTelemetry Collector values for SentinelOps
+## Deployed as DaemonSet so it runs on every node and collects kubelet stats + pod logs
+## Ref: https://github.com/open-telemetry/opentelemetry-helm-charts
+
+mode: daemonset
+
+# Give the collector permission to access kubelet and k8s API
+serviceAccount:
+  create: true
+  annotations: {}
+
+clusterRole:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: ["nodes", "nodes/stats", "nodes/proxy", "pods", "namespaces", "services", "endpoints"]
+      verbs: ["get", "list", "watch"]
+    - apiGroups: ["apps"]
+      resources: ["replicasets"]
+      verbs: ["get", "list", "watch"]
+
+config:
+  # ─────────────────────────────────────────────
+  # RECEIVERS
+  # ─────────────────────────────────────────────
+  receivers:
+    # Scrape kubelet stats (CPU, memory, network per pod/container)
+    kubeletstats:
+      collection_interval: 20s
+      auth_type: serviceAccount
+      endpoint: "https://${env:K8S_NODE_NAME}:10250"
+      insecure_skip_verify: true
+      metric_groups:
+        - pod
+        - container
+        - node
+
+    # Tail all pod log files from the node filesystem
+    filelog:
+      include:
+        - /var/log/pods/*/*/*.log
+      start_at: beginning
+      include_file_path: true
+      include_file_name: false
+      operators:
+        - type: router
+          id: get-format
+          routes:
+            - output: parser-docker
+              expr: 'body matches "^\\{"'
+            - output: parser-crio
+              expr: 'body matches "^[^ ]+ "'
+        - type: json_parser
+          id: parser-docker
+          output: extract-metadata-from-filepath
+        - type: regex_parser
+          id: parser-crio
+          regex: '^(?P<time>[^ ]+) (?P<stream>stdout|stderr) (?P<logtag>[^ ]*) ?(?P<log>.*)$'
+          output: extract-metadata-from-filepath
+          timestamp:
+            parse_from: attributes.time
+            layout: '%Y-%m-%dT%H:%M:%S.%LZ'
+        - type: regex_parser
+          id: extract-metadata-from-filepath
+          regex: '^.*\/(?P<namespace>[^_]+)_(?P<pod_name>[^_]+)_(?P<uid>[a-f0-9\-]+)\/(?P<container_name>[^\._]+)\/(?P<restart_count>\d+)\.log$'
+          parse_from: attributes["log.file.path"]
+          cache:
+            size: 128
+        - type: move
+          from: attributes.log
+          to: body
+
+  # ─────────────────────────────────────────────
+  # PROCESSORS
+  # ─────────────────────────────────────────────
+  processors:
+    # Enrich every signal with Kubernetes metadata
+    k8sattributes:
+      auth_type: serviceAccount
+      passthrough: false
+      extract:
+        metadata:
+          - k8s.namespace.name
+          - k8s.pod.name
+          - k8s.pod.uid
+          - k8s.container.name
+          - k8s.node.name
+          - k8s.deployment.name
+          - k8s.replicaset.name
+        labels:
+          - tag_name: app
+            key: app
+            from: pod
+      pod_association:
+        - sources:
+            - from: resource_attribute
+              name: k8s.pod.ip
+        - sources:
+            - from: resource_attribute
+              name: k8s.pod.uid
+        - sources:
+            - from: connection
+
+    # Batch signals for efficiency
+    batch:
+      timeout: 10s
+      send_batch_size: 512
+
+    # Memory limiter to avoid OOM on the collector itself
+    memory_limiter:
+      check_interval: 1s
+      limit_percentage: 75
+      spike_limit_percentage: 15
+
+  # ─────────────────────────────────────────────
+  # EXPORTERS
+  # ─────────────────────────────────────────────
+  exporters:
+    # Log exporter — writes to stdout (visible in collector pod logs)
+    # For production: replace with otlp to Grafana Tempo or Jaeger
+    logging:
+      verbosity: basic
+      sampling_initial: 5
+      sampling_thereafter: 200
+
+    # Prometheus remote-write exporter (optional, for kubelet metrics → Prometheus)
+    prometheusremotewrite:
+      endpoint: "http://kube-prometheus-prometheus.observability.svc:9090/api/v1/write"
+      tls:
+        insecure: true
+
+  # ─────────────────────────────────────────────
+  # PIPELINES
+  # ─────────────────────────────────────────────
+  service:
+    pipelines:
+      metrics:
+        receivers: [kubeletstats]
+        processors: [memory_limiter, k8sattributes, batch]
+        exporters: [logging]
+      logs:
+        receivers: [filelog]
+        processors: [memory_limiter, k8sattributes, batch]
+        exporters: [logging]
+
+# Resource limits for the collector DaemonSet pod
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# Host path volume mounts needed for filelog receiver
+extraVolumes:
+  - name: varlogpods
+    hostPath:
+      path: /var/log/pods
+  - name: varlibdockercontainers
+    hostPath:
+      path: /var/lib/docker/containers
+
+extraVolumeMounts:
+  - name: varlogpods
+    mountPath: /var/log/pods
+    readOnly: true
+  - name: varlibdockercontainers
+    mountPath: /var/lib/docker/containers
+    readOnly: true
+
+# Required env var for kubeletstats endpoint
+env:
+  - name: K8S_NODE_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: spec.nodeName

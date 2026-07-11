@@ -1,0 +1,75 @@
+## kube-prometheus-stack values for SentinelOps
+## Ref: https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack
+
+# ──────────────────────────────────────────────
+# Prometheus configuration
+# ──────────────────────────────────────────────
+prometheus:
+  prometheusSpec:
+    retention: 24h
+    # Pick up PrometheusRule objects in ALL namespaces
+    ruleNamespaceSelector: {}
+    ruleSelector:
+      matchLabels:
+        release: kube-prometheus
+    # Scrape ServiceMonitors in all namespaces
+    serviceMonitorNamespaceSelector: {}
+    serviceMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    podMonitorSelector: {}
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 1Gi
+
+# ──────────────────────────────────────────────
+# AlertManager — webhook receiver to Incident Normalizer
+# ──────────────────────────────────────────────
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["alertname", "namespace", "pod"]
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 1h
+      receiver: sentinelops-webhook
+    receivers:
+      - name: sentinelops-webhook
+        webhook_configs:
+          # When running incident-normalizer locally via port-forward,
+          # replace with the actual accessible URL or k8s service URL.
+          - url: "http://host.docker.internal:8000/webhook"
+            send_resolved: true
+
+# ──────────────────────────────────────────────
+# Grafana — enable with default dashboard
+# ──────────────────────────────────────────────
+grafana:
+  enabled: true
+  adminPassword: "sentinelops-admin"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# ──────────────────────────────────────────────
+# Disable components not needed locally
+# ──────────────────────────────────────────────
+kubeEtcd:
+  enabled: false   # kind clusters don't expose etcd metrics by default
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false

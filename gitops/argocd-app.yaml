@@ -1,0 +1,49 @@
+## Argo CD Application — SentinelOps GitOps Reconciler
+##
+## Apply: kubectl apply -f gitops/argocd-app.yaml
+##
+## selfHeal: true is MANDATORY.
+## Without it, manual kubectl edit/scale drift is never corrected and the
+## "Git is the only path to change" guarantee is false.
+##
+## Replace <your-username> with your actual GitHub username before applying.
+
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: sentinelops-app
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  project: default
+
+  # ── Source: watch the gitops/manifests/ directory on main branch ────────────
+  source:
+    repoURL: https://github.com/<your-username>/sentinelops.git
+    targetRevision: main
+    path: gitops/manifests
+
+  # ── Destination: reconcile into the apps namespace ───────────────────────────
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apps
+
+  # ── Sync policy ─────────────────────────────────────────────────────────────
+  syncPolicy:
+    automated:
+      prune: true        # Remove resources that are in the cluster but not in Git
+      selfHeal: true     # MANDATORY: revert any manual drift on the live cluster
+    syncOptions:
+      - CreateNamespace=true        # Create the apps namespace if it doesn't exist
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true              # Prune after all other resources are synced
+      - ApplyOutOfSyncOnly=true     # Only apply resources that differ from Git
+
+  # ── Health check ignore rules ────────────────────────────────────────────────
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        # Ignore HPA-managed replica counts — let the HPA manage replicas
+        - /spec/replicas
