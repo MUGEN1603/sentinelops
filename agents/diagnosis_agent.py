@@ -87,6 +87,30 @@ def diagnosis_agent(state: dict) -> dict:
         similar_context=similar_context
     )
 
+    # ── Sanitise recent_metrics before passing to LLM ─────────────────────────
+    # fetch_recent_metrics() may inject a "_fetch_errors" key (a list, not float)
+    # to signal which metric queries failed. Strip it from the LLM payload and
+    # surface it as a context note instead so the LLM doesn't misinterpret it.
+    raw_metrics = dict(incident.get("recent_metrics", {}))
+    fetch_errors = raw_metrics.pop("_fetch_errors", None)
+
+    numeric_metrics = {
+        k: v for k, v in raw_metrics.items()
+        if isinstance(v, (int, float))
+    }
+
+    # Append a data-quality warning if some metrics failed to fetch
+    if fetch_errors:
+        log.warning("Incomplete metrics for incident=%s — failed: %s", incident.get("id"), fetch_errors)
+        metrics_note = (
+            f"\n\n[CONTEXT NOTE] The following metrics could not be fetched and are missing: "
+            f"{fetch_errors}. Factor this uncertainty into your confidence score."
+        )
+    else:
+        metrics_note = ""
+
+
+
     # ── Compact incident for LLM ──────────────────────────────────────────────
     incident_for_llm = {
         "workload":       incident.get("workload"),
@@ -94,8 +118,14 @@ def diagnosis_agent(state: dict) -> dict:
         "severity":       severity,
         "alert_labels":   incident.get("alert_labels", {}),
         "recent_logs":    incident.get("recent_logs", [])[:30],
-        "recent_metrics": incident.get("recent_metrics", {}),
+        # Use sanitised numeric_metrics — _fetch_errors key is stripped above
+        "recent_metrics": numeric_metrics,
     }
+
+    # Append data-quality note to system prompt if metrics are incomplete
+    if metrics_note:
+        system_prompt += metrics_note
+
 
     try:
         response = ollama.chat(

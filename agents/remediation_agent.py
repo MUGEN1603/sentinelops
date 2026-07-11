@@ -76,13 +76,20 @@ def remediation_agent(state: dict) -> dict:
 
     log.info("Remediation started for incident id=%s", incident.get("id"))
 
+    # Strip _fetch_errors sentinel key injected by fetch_recent_metrics on failure
+    # so JSON serialisation doesn't break on non-float values
+    raw_metrics = dict(incident.get("recent_metrics", {}))
+    raw_metrics.pop("_fetch_errors", None)
+    numeric_metrics = {k: v for k, v in raw_metrics.items() if isinstance(v, (int, float))}
+
     prompt_content = {
-        "workload":    incident.get("workload"),
-        "namespace":   incident.get("namespace"),
-        "kind":        incident.get("kind", "Pod"),
-        "rca_summary": rca[:1000],   # truncate to avoid hitting context limits
-        "current_metrics": incident.get("recent_metrics", {}),
+        "workload":        incident.get("workload"),
+        "namespace":       incident.get("namespace"),
+        "kind":            incident.get("kind", "Pod"),
+        "rca_summary":     rca[:1000],   # truncate to avoid hitting context limits
+        "current_metrics": numeric_metrics,
     }
+
 
     try:
         response = ollama.chat(

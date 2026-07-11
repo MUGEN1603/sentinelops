@@ -100,16 +100,39 @@ def fetch_loki_logs(pod_name: str, namespace: str = "apps") -> list[str]:
 def fetch_recent_metrics(pod_name: str, namespace: str) -> dict[str, float]:
     """
     Query Prometheus for key point-in-time metrics for the affected pod.
-    Stub implementation — extend with actual PromQL queries against
-    http://kube-prometheus-prometheus.observability.svc:9090/api/v1/query
+
+    Queries three PromQL expressions:
+      - container_memory_usage_bytes
+      - rate(container_cpu_usage_seconds_total[5m])
+      - kube_pod_container_status_restarts_total
+
+    Returns a dict of {metric_name: float_value}.
+    If Prometheus is unreachable or a query returns no data, the metric is
+    absent from the dict and its name is logged + recorded in _fetch_errors
+    so downstream agents know the context is incomplete (not silently missing).
+
+    The special key "_fetch_errors" holds a list of metric names that failed.
+    Downstream agents should treat its presence as a signal that RCA may have
+    incomplete metric context.
     """
     PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
+    log.info("Fetching metrics for pod=%s ns=%s from %s", pod_name, namespace, PROMETHEUS_URL)
+
     queries = {
-        "memory_usage_bytes": f'container_memory_usage_bytes{{namespace="{namespace}", pod="{pod_name}"}}',
-        "cpu_usage_cores":    f'rate(container_cpu_usage_seconds_total{{namespace="{namespace}", pod="{pod_name}"}}[5m])',
-        "restart_count":      f'kube_pod_container_status_restarts_total{{namespace="{namespace}", pod="{pod_name}"}}',
+        "memory_usage_bytes": (
+            f'container_memory_usage_bytes{{namespace="{namespace}", pod="{pod_name}"}}'
+        ),
+        "cpu_usage_cores": (
+            f'rate(container_cpu_usage_seconds_total{{namespace="{namespace}", pod="{pod_name}"}}[5m])'
+        ),
+        "restart_count": (
+            f'kube_pod_container_status_restarts_total{{namespace="{namespace}", pod="{pod_name}"}}'
+        ),
     }
+
     metrics: dict[str, float] = {}
+    failed_metrics: list[str] = []
+
     for metric_name, promql in queries.items():
         try:
             resp = requests.get(
@@ -117,12 +140,49 @@ def fetch_recent_metrics(pod_name: str, namespace: str) -> dict[str, float]:
                 params={"query": promql},
                 timeout=3
             )
+            resp.raise_for_status()
             data = resp.json()
             results = data.get("data", {}).get("result", [])
             if results:
                 metrics[metric_name] = float(results[0]["value"][1])
+                log.debug("Metric %s = %s for pod=%s", metric_name, metrics[metric_name], pod_name)
+            else:
+                # Query succeeded but returned no series — pod may not be in Prometheus yet
+                log.warning(
+                    "Prometheus returned empty result for metric=%s pod=%s (pod not yet scraped?)",
+                    metric_name, pod_name
+                )
+                failed_metrics.append(f"{metric_name}:no_data")
+        except requests.exceptions.ConnectionError:
+            log.warning(
+                "Prometheus unreachable at %s — metric=%s will be missing from incident context",
+                PROMETHEUS_URL, metric_name
+            )
+            failed_metrics.append(f"{metric_name}:prometheus_unreachable")
+        except requests.exceptions.Timeout:
+            log.warning("Prometheus query timed out for metric=%s pod=%s", metric_name, pod_name)
+            failed_metrics.append(f"{metric_name}:timeout")
         except Exception as exc:
-            log.warning("Prometheus query failed for %s: %s", metric_name, exc)
+            log.warning(
+                "Prometheus query failed for metric=%s pod=%s: %s",
+                metric_name, pod_name, exc
+            )
+            failed_metrics.append(f"{metric_name}:{type(exc).__name__}")
+
+    if failed_metrics:
+        log.warning(
+            "Incomplete metrics for pod=%s: %d/%d metrics failed: %s",
+            pod_name, len(failed_metrics), len(queries), failed_metrics
+        )
+        # Store failure manifest so diagnosis_agent can note missing context in RCA
+        # Cast to float-compatible sentinel is not possible; store as a special string key.
+        # Agents must handle this key being present and ignore it for numeric operations.
+        metrics["_fetch_errors"] = failed_metrics  # type: ignore[assignment]
+
+    log.info(
+        "Metrics fetch complete for pod=%s: %d/%d succeeded",
+        pod_name, len(queries) - len(failed_metrics), len(queries)
+    )
     return metrics
 
 
