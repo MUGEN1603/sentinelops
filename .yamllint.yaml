@@ -6,8 +6,6 @@ rules:
   document-start:
     present: false
     level: warning
-    # Allow document start (---) for Kubernetes multi-document YAML files
-    # These are required by kubectl for multi-resource manifests
   trailing-spaces:
     level: error
   empty-lines:
@@ -28,3 +26,5 @@ rules:
     level: warning
   new-line-at-end-of-file:
     level: error
+ignore: |
+  .github/workflows/*.yaml

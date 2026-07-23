@@ -49,8 +49,8 @@ spec:
       - PruneLast=true              # Prune after all other resources are synced
       - ApplyOutOfSyncOnly=true     # Only apply resources that differ from Git
 
-    # NOTE: We do NOT use ignoreDifferences on /spec/replicas. The repo does NOT
-    # deploy an HPA, so /spec/replicas is owned exclusively by Git — Argo CD must
-    # observe and correct manual `kubectl scale` drift. Adding ignoreDifferences
-    # here would silently disable selfHeal for replica count, breaking the
-    # test_selfheal.py validation.
+      # NOTE: We do NOT use ignoreDifferences on /spec/replicas. The repo does NOT
+      # deploy an HPA, so /spec/replicas is owned exclusively by Git — Argo CD must
+      # observe and correct manual `kubectl scale` drift. Adding ignoreDifferences
+      # here would silently disable selfHeal for replica count, breaking the
+      # test_selfheal.py validation.
