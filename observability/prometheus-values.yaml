@@ -7,6 +7,10 @@
 prometheus:
   prometheusSpec:
     retention: 24h
+    # Enable the remote-write receiver so the OTel Collector can push
+    # kubeletstats metrics to Prometheus via /api/v1/write. The OTel
+    # collector's `prometheusremotewrite` exporter depends on this.
+    enableRemoteWriteReceiver: true
     # Pick up PrometheusRule objects in ALL namespaces
     ruleNamespaceSelector: {}
     ruleSelector:
@@ -54,9 +58,12 @@ alertmanager:
 # ──────────────────────────────────────────────
 # Grafana — enable with default dashboard
 # ──────────────────────────────────────────────
+# For production: create a Kubernetes Secret with the admin password and
+# reference it via `grafana.admin.existingSecret` instead of hardcoding here.
+# See infra/secrets.yaml (grafana-admin-credentials) for the Secret template.
 grafana:
   enabled: true
-  adminPassword: "sentinelops-admin"
+  adminPassword: "sentinelops-admin"  # CHANGE THIS for any non-local deployment
   resources:
     requests:
       cpu: 100m

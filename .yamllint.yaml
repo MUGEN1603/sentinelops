@@ -1,0 +1,26 @@
+extends: default
+rules:
+  line-length:
+    max: 120
+    level: warning
+  document-start:
+    present: false
+    level: warning
+  trailing-spaces:
+    level: error
+  empty-lines:
+    max: 2
+    level: warning
+  indentation:
+    spaces: 2
+    level: error
+  comments-indentation:
+    level: warning
+  key-duplicates:
+    level: error
+  braces:
+    level: warning
+  brackets:
+    level: warning
+  truthy:
+    level: warning

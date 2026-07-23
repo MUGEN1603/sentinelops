@@ -25,6 +25,7 @@ class Incident(BaseModel):
     alert_labels: Dict[str, str] = Field(default_factory=dict, description="Raw labels from AlertManager alert")
     recent_logs: List[str] = Field(default_factory=list, description="Last N log lines from Loki for this pod")
     recent_metrics: Dict[str, float] = Field(default_factory=dict, description="Key metrics at incident time (e.g. memory_usage_bytes)")
+    metric_fetch_errors: List[str] = Field(default_factory=list, description="Metric names that failed to fetch; signals RCA context is incomplete")
     k8s_objects: List[dict] = Field(default_factory=list, description="Raw k8s object snapshots (Deployment, Pod spec, Events)")
     trace_refs: List[str] = Field(default_factory=list, description="OTel trace IDs correlated with this incident")
 
@@ -75,25 +76,49 @@ class GitOpsChange(BaseModel):
     pr_url: Optional[str] = Field(default=None, description="GitHub PR URL, populated after PR is created")
     merge_status: str = Field(default="open", description="PR status: open | merged | closed | auto-merged")
     created_at: str = Field(
-        default_factory=lambda: datetime.datetime.utcnow().isoformat(),
+        default_factory=lambda: datetime.datetime.now(datetime.UTC).isoformat(),
         description="UTC timestamp when this PR was created"
     )
 
 
 # ── Convenience type alias used in the LangGraph GraphState ──────────────────
-class GraphState(dict):
+# LangGraph 1.x requires a TypedDict (not a plain dict subclass) so the
+# framework knows the state schema and can merge node return values. A plain
+# `class GraphState(dict)` causes invoke() to silently return None because
+# LangGraph treats it as "no schema defined". Using TypedDict with total=False
+# lets every key be optional (nodes set only the keys they produce).
+from typing import TypedDict
+
+
+class GraphState(TypedDict, total=False):
     """
     The mutable state dict passed between LangGraph agent nodes.
 
     Expected keys after each phase:
       - incident            : Incident dict            (set by: normalizer)
       - severity_classification : str                  (set by: triage_agent)
+      - triage_summary      : str                      (set by: triage_agent)
       - similar_incidents   : List[str]                (set by: diagnosis_agent)
       - rca                 : str                      (set by: diagnosis_agent)
+      - rca_confidence      : float                    (set by: diagnosis_agent)
       - proposed_patch      : str                      (set by: remediation_agent)
+      - patch_type          : str                      (set by: remediation_agent)
       - risk_level          : str                      (set by: remediation_agent)
+      - rollback_hint       : str                      (set by: remediation_agent)
       - policy_allowed      : bool                     (set by: policy_review_agent)
       - policy_reasons      : List[str]                (set by: policy_review_agent)
       - gitops_change       : GitOpsChange dict        (set by: policy_review_agent on allow)
     """
-    pass
+    incident: dict
+    severity_classification: str
+    triage_summary: str
+    similar_incidents: list
+    rca: str
+    rca_confidence: float
+    proposed_patch: str
+    patch_type: str
+    risk_level: str
+    rollback_hint: str
+    policy_allowed: bool
+    policy_reasons: list
+    gitops_change: dict

@@ -6,7 +6,14 @@
 ## Without it, manual kubectl edit/scale drift is never corrected and the
 ## "Git is the only path to change" guarantee is false.
 ##
-## Replace <your-username> with your actual GitHub username before applying.
+## BEFORE applying: replace SENTINELOPS_REPO_OWNER/REPO_NAME placeholders with
+## your real GitHub owner/repo. The constants SENTINELOPS_REPO_OWNER and
+## SENTINELOPS_REPO_NAME below are documentation-only — Argo CD does not do
+## env substitution in raw Application manifests, so you MUST edit this file
+## (or use Kustomize + envsubst / Argo CD ApplicationSet with cluster vars).
+##
+## Example final value:
+##   repoURL: https://github.com/gauravpandey/sentinelops.git
 
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -20,7 +27,9 @@ spec:
 
   # ── Source: watch the gitops/manifests/ directory on main branch ────────────
   source:
-    repoURL: https://github.com/<your-username>/sentinelops.git
+    # REPLACE with your real repo URL before `kubectl apply`.
+    # Example: https://github.com/gauravpandey/sentinelops.git
+    repoURL: https://github.com/SENTINELOPS_REPO_OWNER/SENTINELOPS_REPO_NAME.git
     targetRevision: main
     path: gitops/manifests
 
@@ -40,10 +49,9 @@ spec:
       - PruneLast=true              # Prune after all other resources are synced
       - ApplyOutOfSyncOnly=true     # Only apply resources that differ from Git
 
-  # ── Health check ignore rules ────────────────────────────────────────────────
-  ignoreDifferences:
-    - group: apps
-      kind: Deployment
-      jsonPointers:
-        # Ignore HPA-managed replica counts — let the HPA manage replicas
-        - /spec/replicas
+  # NOTE: We do NOT use ignoreDifferences on /spec/replicas. The repo does NOT
+  # deploy an HPA, so /spec/replicas is owned exclusively by Git — Argo CD must
+  # observe and correct manual `kubectl scale` drift. Adding ignoreDifferences
+  # here would silently disable selfHeal for replica count, breaking the
+  # test_selfheal.py validation.
+

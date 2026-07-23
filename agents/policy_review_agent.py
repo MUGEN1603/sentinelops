@@ -19,6 +19,8 @@ Output state keys written:
   - gitops_change (dict | None): GitOpsChange dict if PR was created
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -65,7 +67,19 @@ def query_opa(action: str, risk_level: str, namespace: str) -> tuple[bool, list[
                 json=opa_input,
                 timeout=5
             )
-            reasons = list(deny_resp.json().get("result", {}).keys())
+            # OPA's Rego `deny_reason["..."] if {...}` produces a SET, which OPA
+            # serializes as a JSON array (list). Older/non-set rule shapes may
+            # produce an object (dict). Handle both so we never crash on shape.
+            result = deny_resp.json().get("result", None)
+            if isinstance(result, list):
+                # Sets of strings come back as a list of strings.
+                reasons = [str(r) for r in result]
+            elif isinstance(result, dict):
+                reasons = list(result.keys())
+            elif result is None:
+                reasons = []
+            else:
+                reasons = [str(result)]
 
         return allowed, reasons
 
@@ -131,7 +145,9 @@ def policy_review_agent(state: dict) -> dict:
     try:
         from agents.gitops_bridge import open_remediation_pr
 
-        repo_name  = os.getenv("GITHUB_REPO", "<your-username>/sentinelops")
+        # GITHUB_REPO env var must be set; gitops_bridge will raise a clear
+        # RuntimeError if it's missing rather than silently failing mid-pipeline.
+        repo_name  = os.getenv("GITHUB_REPO", "")
         file_path  = "gitops/manifests/sample-app-deployment.yaml"
         new_content = state.get("proposed_patch", "")
 
@@ -150,7 +166,7 @@ def policy_review_agent(state: dict) -> dict:
             pr_url=pr_url,
             merge_status="open"
         )
-        state["gitops_change"] = gitops_change.dict()
+        state["gitops_change"] = gitops_change.model_dump()
         log.info("PR created: %s", pr_url)
 
     except Exception as exc:
@@ -164,7 +180,10 @@ def policy_review_agent(state: dict) -> dict:
 
     # ── Store incident in Qdrant for future RAG retrieval ─────────────────────
     try:
-        from memory.qdrant_client import store_incident
+        # Resolve via module so pytest monkeypatching of
+        # `memory.qdrant_client.store_incident` takes effect at call-time.
+        from memory import qdrant_client as _qdrant_mem
+        store_incident = _qdrant_mem.store_incident
         incident_text = (
             f"{incident.get('workload', '')} "
             f"{json.dumps(incident.get('alert_labels', {}))} "

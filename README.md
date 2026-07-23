@@ -56,10 +56,10 @@ helm install kube-prometheus prometheus-community/kube-prometheus-stack -n obser
 helm install loki grafana/loki-stack -n observability -f observability/loki-values.yaml --set promtail.enabled=true
 helm install otel-collector open-telemetry/opentelemetry-collector -n observability -f observability/otel-collector-values.yaml --set mode=daemonset
 
-# Deploy sample app
+# Deploy sample app (canonical manifest lives in gitops/manifests/)
 docker build -t sentinelops/sample-app:v1 sample-app/
 kind load docker-image sentinelops/sample-app:v1 --name sentinelops
-kubectl apply -f sample-app/k8s-manifest.yaml -n apps
+kubectl apply -f gitops/manifests/sample-app-deployment.yaml -n apps
 
 # Start incident normalizer
 uvicorn incident-normalizer.webhook_server:app --port 8000 --reload

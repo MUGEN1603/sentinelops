@@ -14,12 +14,15 @@ Exit check:
     # expect: {"status":"processed","count":1}
 """
 
+from __future__ import annotations
+
 import datetime
 import os
 import time
 import uuid
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from fastapi import FastAPI, Request, HTTPException
@@ -44,6 +47,15 @@ app = FastAPI(
 LOKI_URL = os.getenv("LOKI_URL", "http://localhost:3100")
 LOKI_LOG_MINUTES = int(os.getenv("LOKI_LOG_MINUTES", "5"))
 LOKI_LOG_LIMIT = int(os.getenv("LOKI_LOG_LIMIT", "100"))
+
+# Bounded worker pool for pipeline dispatch — prevents unbounded thread spawn
+# under alert bursts. Ollama is single-concurrency; default of 2 lets one work
+# while another queues without overwhelming the local LLM runtime.
+PIPELINE_WORKERS = int(os.getenv("PIPELINE_WORKERS", "2"))
+_pipeline_pool = ThreadPoolExecutor(
+    max_workers=PIPELINE_WORKERS,
+    thread_name_prefix="sentinelops-pipe"
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Loki log fetcher
@@ -174,10 +186,10 @@ def fetch_recent_metrics(pod_name: str, namespace: str) -> dict[str, float]:
             "Incomplete metrics for pod=%s: %d/%d metrics failed: %s",
             pod_name, len(failed_metrics), len(queries), failed_metrics
         )
-        # Store failure manifest so diagnosis_agent can note missing context in RCA
-        # Cast to float-compatible sentinel is not possible; store as a special string key.
-        # Agents must handle this key being present and ignore it for numeric operations.
-        metrics["_fetch_errors"] = failed_metrics  # type: ignore[assignment]
+        # Surface missing-metric context as a separate field rather than
+        # polluting recent_metrics (which is typed Dict[str, float] in the
+        # Pydantic Incident schema and would raise ValidationError on a list).
+        metrics["metric_fetch_errors"] = failed_metrics  # type: ignore[assignment]
 
     log.info(
         "Metrics fetch complete for pod=%s: %d/%d succeeded",
@@ -196,9 +208,10 @@ def dispatch_to_pipeline(incident: Incident) -> None:
     Import is deferred to avoid circular imports at module load time.
     """
     try:
-        from agents.graph import graph
+        from agents.graph import get_graph
+        graph = get_graph()
         config = {"configurable": {"thread_id": incident.id}}
-        result = graph.invoke({"incident": incident.dict()}, config=config)
+        result = graph.invoke({"incident": incident.model_dump()}, config=config)
         log.info(
             "Pipeline completed for incident=%s | policy_allowed=%s | pr_url=%s",
             incident.id,
@@ -254,16 +267,23 @@ async def receive_alert(request: Request) -> JSONResponse:
         pod_name = labels.get("pod", "unknown")
         namespace = labels.get("namespace", "apps")
 
+        # Build incident context: metrics dict and any fetch-error list
+        raw_metrics = fetch_recent_metrics(pod_name, namespace)
+        metric_errors = raw_metrics.pop("metric_fetch_errors", []) if isinstance(
+            raw_metrics.get("metric_fetch_errors"), list
+        ) else raw_metrics.pop("_fetch_errors", [])
+
         incident = Incident(
             id=str(uuid.uuid4()),
-            started_at=alert.get("startsAt", datetime.datetime.utcnow().isoformat()),
+            started_at=alert.get("startsAt", datetime.datetime.now(datetime.UTC).isoformat()),
             namespace=namespace,
             workload=pod_name,
             kind="Pod",
             severity=labels.get("severity", "unknown"),
             alert_labels=labels,
             recent_logs=fetch_loki_logs(pod_name, namespace),
-            recent_metrics=fetch_recent_metrics(pod_name, namespace),
+            recent_metrics={k: v for k, v in raw_metrics.items() if isinstance(v, (int, float))},
+            metric_fetch_errors=metric_errors,
             k8s_objects=[],    # extend: query k8s API for pod spec + events
             trace_refs=[]      # extend: correlate from OTel collector
         )
@@ -271,12 +291,11 @@ async def receive_alert(request: Request) -> JSONResponse:
         log.info("Built incident id=%s workload=%s severity=%s logs=%d",
                  incident.id, incident.workload, incident.severity, len(incident.recent_logs))
 
-        # Async dispatch — fire and forget for fast webhook response
-        import threading
-        t = threading.Thread(target=dispatch_to_pipeline, args=(incident,), daemon=True)
-        t.start()
+        # Bounded async dispatch via the worker pool (avoids unbounded thread
+        # spawn under alert bursts). The pool blocks once PIPELINE_WORKERS are busy.
+        _pipeline_pool.submit(dispatch_to_pipeline, incident)
 
-        incidents_built.append(incident.dict())
+        incidents_built.append(incident.model_dump())
 
     return JSONResponse(content={"status": "processed", "count": len(incidents_built)})
 

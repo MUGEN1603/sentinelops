@@ -17,14 +17,19 @@ Output state keys written:
 
 import json
 import logging
+import os
 
 import ollama
 
-from memory.qdrant_client import retrieve_similar
+# Import the qdrant_client MODULE (not the function) so tests can monkeypatch
+# `memory.qdrant_client.retrieve_similar` and have the change take effect here.
+# A module-level `from memory.qdrant_client import retrieve_similar` would bind
+# the function name at import time and prevent monkeypatch from affecting us.
+from memory import qdrant_client as _qdrant_memory
 
 log = logging.getLogger("diagnosis-agent")
 
-MODEL = "qwen3-coder"
+MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder:latest")
 
 SYSTEM_PROMPT_TEMPLATE = """\
 You are a Kubernetes SRE expert performing root cause analysis.
@@ -69,6 +74,8 @@ def diagnosis_agent(state: dict) -> dict:
         f"{log_excerpt}"
     ).strip()
 
+    # Resolve at call-time from the module so pytest monkeypatch can swap it.
+    retrieve_similar = _qdrant_memory.retrieve_similar
     similar = retrieve_similar(query_text, k=3)
     similar_ids = [s["id"] for s in similar]
 
@@ -88,11 +95,13 @@ def diagnosis_agent(state: dict) -> dict:
     )
 
     # ── Sanitise recent_metrics before passing to LLM ─────────────────────────
-    # fetch_recent_metrics() may inject a "_fetch_errors" key (a list, not float)
-    # to signal which metric queries failed. Strip it from the LLM payload and
-    # surface it as a context note instead so the LLM doesn't misinterpret it.
+    # The Incident schema carries metric-fetch failures in `metric_fetch_errors`
+    # (a List[str]), separate from `recent_metrics` (Dict[str, float]). For
+    # backward-compat with any raw dicts that still embed the legacy
+    # "_fetch_errors" key, we also pop it defensively here.
     raw_metrics = dict(incident.get("recent_metrics", {}))
-    fetch_errors = raw_metrics.pop("_fetch_errors", None)
+    legacy_errors = raw_metrics.pop("_fetch_errors", None)
+    fetch_errors = incident.get("metric_fetch_errors") or legacy_errors or []
 
     numeric_metrics = {
         k: v for k, v in raw_metrics.items()

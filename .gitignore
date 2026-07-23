@@ -1,4 +1,32 @@
+# Python
 *.pyc
 __pycache__/
 *.db
+*.egg-info/
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local storage / runtime artifacts
 qdrant_storage/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit real credentials
+.env
+*.env
+secrets.local.yaml

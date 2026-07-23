@@ -123,7 +123,11 @@ config:
       sampling_initial: 5
       sampling_thereafter: 200
 
-    # Prometheus remote-write exporter (optional, for kubelet metrics → Prometheus)
+    # Prometheus remote-write exporter — kubelet metrics → Prometheus.
+    # Requires Prometheus remote-write receiver to be enabled; see
+    # observability/prometheus-values.yaml `enableRemoteWriteReceiver: true`.
+    # If you remove this, also drop `prometheusremotewrite` from the metrics
+    # pipeline exporters list below.
     prometheusremotewrite:
       endpoint: "http://kube-prometheus-prometheus.observability.svc:9090/api/v1/write"
       tls:
@@ -135,9 +139,10 @@ config:
   service:
     pipelines:
       metrics:
+        # Send kubeletstats metrics to BOTH stdout (debug) and Prometheus.
         receivers: [kubeletstats]
         processors: [memory_limiter, k8sattributes, batch]
-        exporters: [logging]
+        exporters: [logging, prometheusremotewrite]
       logs:
         receivers: [filelog]
         processors: [memory_limiter, k8sattributes, batch]

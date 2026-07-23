@@ -1,25 +1,39 @@
+# SentinelOps - Pinned dependencies for reproducible builds
+# Generated from current working environment
+# Update with: pip freeze > requirements.txt (after verifying compatibility)
+
 # LangGraph + AI
-langgraph>=0.2.0
-langgraph-checkpoint-sqlite>=1.0.0
-langchain-community>=0.2.0
-ollama>=0.2.0
+langgraph==1.2.9
+langgraph-checkpoint-sqlite==3.1.0
+langchain-community==0.4.2
+ollama==0.6.2
 
 # Vector Memory
-qdrant-client>=1.9.0
-fastembed>=0.3.0
+qdrant-client==1.18.0
+fastembed==0.8.0
 
 # Web + API
-fastapi>=0.111.0
-uvicorn>=0.30.0
-pydantic>=2.7.0
-requests>=2.31.0
+fastapi==0.139.2
+uvicorn==0.51.0
+pydantic==2.13.4
+requests==2.34.2
+
+# Metrics / sample-app
+prometheus-client==0.25.0
+starlette==1.3.1
 
 # Kubernetes + GitHub
-kubernetes>=29.0.0
-PyGithub>=2.3.0
+kubernetes==36.0.3
+PyGithub==2.9.1
 
 # OPA (Policy)
 # OPA is run as a docker container; no Python package needed
 
 # Utilities
-python-dotenv>=1.0.0
+python-dotenv==1.2.2
+
+# Testing (dev dependencies)
+pytest==9.1.1
+pytest-timeout==2.4.0
+httpx==0.28.1
+pytest-cov==6.0.0

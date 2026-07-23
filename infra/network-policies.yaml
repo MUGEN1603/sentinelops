@@ -1,0 +1,359 @@
+## infra/network-policies.yaml — Default-deny egress+ingress per namespace,
+## then explicit allow rules for each legitimate traffic flow.
+##
+## Apply: kubectl apply -f infra/network-policies.yaml
+##
+## Traffic flow map this enforces:
+##
+##   AlertManager      →→→  incident-normalizer:8000/webhook        [ALLOWED]
+##   incident-normalizer →→ Loki:3100                               [ALLOWED]
+##   incident-normalizer →→ Prometheus:9090                         [ALLOWED]
+##   sentinelops-agent  →→ Qdrant:6333                             [ALLOWED]
+##   sentinelops-agent  →→ OPA:8181                                [ALLOWED]
+##   sentinelops-agent  →→ Ollama:11434                            [ALLOWED]
+##   sentinelops-agent  →→ GitHub API:443 (egress to internet)     [ALLOWED]
+##   sample-app        →→ [nothing outbound]                        [DEFAULT DENY]
+##   All namespaces    →→ kube-dns:53                               [ALLOWED everywhere]
+##   Everything else   →→ DENIED
+
+---
+## ════════════════════════════════════════════════════════════════════════════
+## NAMESPACE: apps — sample-app
+## ════════════════════════════════════════════════════════════════════════════
+
+## Default deny ALL ingress and egress in apps namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: apps
+  labels:
+    managed-by: sentinelops
+    policy-type: default-deny
+spec:
+  podSelector: {}        # applies to ALL pods in namespace
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+## Allow DNS resolution (required for all pods to function)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: apps
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+## Allow Prometheus to scrape sample-app metrics (:8080/metrics)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape
+  namespace: apps
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector:
+    matchLabels:
+      app: sample-app
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 8080
+          protocol: TCP
+
+---
+## Allow port-forward access from localhost (for manual testing during dev)
+## This policy allows ingress from any source on 8080, scoped to dev label.
+## REMOVE this policy in production.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-portforward-dev
+  namespace: apps
+  labels:
+    managed-by: sentinelops
+    environment: dev-only
+spec:
+  podSelector:
+    matchLabels:
+      app: sample-app
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+
+---
+## ════════════════════════════════════════════════════════════════════════════
+## NAMESPACE: observability — Prometheus, Loki, OTel
+## ════════════════════════════════════════════════════════════════════════════
+
+## Default deny all in observability namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: observability
+  labels:
+    managed-by: sentinelops
+    policy-type: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+## Allow DNS in observability
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: observability
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+## Allow Prometheus to scrape pods across all namespaces (via pod scrape)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-scrape-egress
+  namespace: observability
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 8080
+          protocol: TCP
+        - port: 9090
+          protocol: TCP
+        - port: 9091
+          protocol: TCP
+        - port: 9100
+          protocol: TCP
+        - port: 10250
+          protocol: TCP   # kubelet metrics
+
+---
+## Allow AlertManager to POST to the incident-normalizer webhook
+## host.docker.internal resolves to the host — egress on 8000 to any destination
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: alertmanager-webhook-egress
+  namespace: observability
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: alertmanager
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 8000
+          protocol: TCP
+
+---
+## Allow Loki to receive Promtail pushes, and respond to query requests
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loki-ingress
+  namespace: observability
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector:
+    matchLabels:
+      app: loki
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector: {}    # allow from any namespace (Promtail, normalizer)
+      ports:
+        - port: 3100
+          protocol: TCP
+
+---
+## Allow OTel collector kubeletstats egress to kubelet on each node
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: otel-collector-kubelet-egress
+  namespace: observability
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-collector
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 10250
+          protocol: TCP   # kubelet HTTPS
+
+---
+## ════════════════════════════════════════════════════════════════════════════
+## NAMESPACE: default — incident-normalizer and sentinelops-agent
+## ════════════════════════════════════════════════════════════════════════════
+
+## Default deny all in default namespace for SentinelOps components
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sentinelops-default-deny
+  namespace: default
+  labels:
+    managed-by: sentinelops
+    policy-type: default-deny
+spec:
+  podSelector:
+    matchLabels:
+      managed-by: sentinelops   # only applies to our pods, not any pre-existing default-ns pods
+  policyTypes:
+    - Ingress
+    - Egress
+
+---
+## Allow DNS for all SentinelOps components in default namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sentinelops-allow-dns
+  namespace: default
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector:
+    matchLabels:
+      managed-by: sentinelops
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+## Allow incident-normalizer to reach Loki (log fetch) and Prometheus (metrics)
+## These are host-based services when running locally; restrict to observability namespace
+## when deploying the normalizer in-cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: incident-normalizer-egress
+  namespace: default
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector:
+    matchLabels:
+      app: incident-normalizer
+  policyTypes:
+    - Egress
+  egress:
+    ## Loki
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app: loki
+      ports:
+        - port: 3100
+          protocol: TCP
+    ## Prometheus
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 9090
+          protocol: TCP
+
+---
+## Allow sentinelops-agent to reach Qdrant, OPA, Ollama (all on host in local dev)
+## and GitHub API on port 443 for PR creation.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sentinelops-agent-egress
+  namespace: default
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector:
+    matchLabels:
+      app: sentinelops-agent
+  policyTypes:
+    - Egress
+  egress:
+    ## Qdrant (local docker: 6333)
+    - ports:
+        - port: 6333
+          protocol: TCP
+    ## OPA (local docker: 8181)
+    - ports:
+        - port: 8181
+          protocol: TCP
+    ## Ollama (local: 11434)
+    - ports:
+        - port: 11434
+          protocol: TCP
+    ## GitHub API / Slack (HTTPS egress)
+    ## NOTE: In production, use a NAT gateway or proxy with allowlist
+    ## rather than an open HTTPS egress rule.
+    - ports:
+        - port: 443
+          protocol: TCP

@@ -19,13 +19,14 @@ Output state keys written:
 
 import json
 import logging
+import os
 import re
 
 import ollama
 
 log = logging.getLogger("remediation-agent")
 
-MODEL = "qwen3-coder"
+MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder:latest")
 
 SYSTEM_PROMPT = """\
 You are a Kubernetes remediation engineer.

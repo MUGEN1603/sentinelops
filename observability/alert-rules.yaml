@@ -27,7 +27,7 @@ spec:
             description: >
               Pod {{ $labels.pod }} in namespace {{ $labels.namespace }}
               has restarted {{ $value | humanize }} times in the last 5 minutes.
-            runbook: "https://github.com/<your-username>/sentinelops/blob/main/docs/runbook.md"
+            runbook: "docs/runbook.md"
 
         # Fires when a pod's memory usage exceeds 90% of its configured limit
         - alert: HighMemoryUsage

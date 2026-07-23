@@ -37,6 +37,29 @@ SELFHEAL_TIMEOUT_S = 300        # Argo CD's default sync interval is 3 minutes
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
+def _k8s_available() -> bool:
+    """Return True if we can reach a Kubernetes cluster (in-cluster OR kubeconfig)."""
+    from kubernetes import config
+    try:
+        config.load_incluster_config()
+        return True
+    except config.config_exception.ConfigException:
+        try:
+            config.load_kube_config()
+            return True
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
+# Skip the entire module if no Kubernetes cluster is reachable.
+pytestmark = pytest.mark.skipif(
+    not _k8s_available(),
+    reason="No Kubernetes cluster reachable — run `kind create cluster` first"
+)
+
+
 @pytest.fixture(scope="module")
 def k8s_client():
     """Load in-cluster or local kubeconfig and return the AppsV1Api client."""

@@ -1,83 +1,17 @@
-## ─── Deployment ────────────────────────────────────────────────────────────────
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: sample-app
-  namespace: apps
-  labels:
-    app: sample-app
-    version: v1
-    managed-by: sentinelops
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: sample-app
-  template:
-    metadata:
-      labels:
-        app: sample-app
-        version: v1
-      annotations:
-        # Prometheus scrape annotations — picked up by kube-prometheus serviceMonitor fallback
-        prometheus.io/scrape: "true"
-        prometheus.io/port: "8080"
-        prometheus.io/path: "/metrics"
-    spec:
-      containers:
-        - name: sample-app
-          image: sentinelops/sample-app:v1
-          imagePullPolicy: Never   # image loaded via `kind load docker-image`
-          ports:
-            - containerPort: 8080
-              name: http
-          # Deliberately low memory limit so /leak-memory triggers real OOMKill
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "64Mi"
-            limits:
-              cpu: "200m"
-              memory: "128Mi"
-          # Liveness probe — if /healthy fails, k8s restarts the container
-          livenessProbe:
-            httpGet:
-              path: /healthy
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            failureThreshold: 3
-          # Readiness probe — pod only receives traffic when healthy
-          readinessProbe:
-            httpGet:
-              path: /healthy
-              port: 8080
-            initialDelaySeconds: 3
-            periodSeconds: 5
-          env:
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
-            - name: NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
----
-## ─── Service ───────────────────────────────────────────────────────────────────
-apiVersion: v1
-kind: Service
-metadata:
-  name: sample-app
-  namespace: apps
-  labels:
-    app: sample-app
-spec:
-  selector:
-    app: sample-app
-  ports:
-    - name: http
-      port: 8080
-      targetPort: 8080
-      protocol: TCP
-  type: ClusterIP
+## sample-app/k8s-manifest.yaml — Legacy install manifest for the sample-app.
+##
+## ╔══════════════════════════════════════════════════════════════════════════╗
+## ║  CANONICAL SOURCE OF TRUTH:                                              ║
+## ║     gitops/manifests/sample-app-deployment.yaml                          ║
+## ║  This file is kept only for the Phase-3 install command:                 ║
+## ║     kubectl apply -f sample-app/k8s-manifest.yaml                        ║
+## ║  If you maintain two copies they WILL drift. Argo CD only watches the     ║
+## ║  gitops/ copy; editing this file without also editing the gitops copy    ║
+## ║  causes Argo CD to "selfHeal" your change away.                          ║
+## ╚══════════════════════════════════════════════════════════════════════════╝
+##
+## For the canonical Deployment + Service definitions, see:
+##     gitops/manifests/sample-app-deployment.yaml
+##
+## (This file is kept as an anchor so the README / runbook install commands
+## remain valid; after Argo CD is bootstrapped it owns the live cluster state.)

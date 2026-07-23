@@ -1,0 +1,188 @@
+## infra/rbac.yaml — Least-privilege RBAC for all SentinelOps components
+##
+## Principle: every component gets its own ServiceAccount with the minimum
+## permissions it actually needs. No component inherits default SA permissions.
+##
+## Apply: kubectl apply -f infra/rbac.yaml
+##
+## Component permission matrix:
+##   otel-collector         → ClusterRole: read nodes/pods/namespaces/services (kubelet stats + k8sattributes)
+##   incident-normalizer    → No k8s API access needed (calls Loki/Prometheus HTTP only)
+##   sample-app             → No k8s API access
+##   sentinelops-agent      → No k8s API access (calls OPA/Qdrant/GitHub HTTP only)
+##   Argo CD (self-manages) → Installed separately; manages its own RBAC
+
+---
+## ── ServiceAccounts ─────────────────────────────────────────────────────────
+
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: observability
+  labels:
+    app: otel-collector
+    managed-by: sentinelops
+automountServiceAccountToken: true   # required: kubeletstats auth uses this token
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: incident-normalizer
+  namespace: default
+  labels:
+    app: incident-normalizer
+    managed-by: sentinelops
+automountServiceAccountToken: false  # does NOT call k8s API — no token needed
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sample-app
+  namespace: apps
+  labels:
+    app: sample-app
+    managed-by: sentinelops
+automountServiceAccountToken: false  # does NOT call k8s API
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sentinelops-agent
+  namespace: default
+  labels:
+    app: sentinelops-agent
+    managed-by: sentinelops
+automountServiceAccountToken: false  # calls OPA/Qdrant/GitHub via HTTP, not k8s API
+
+---
+## ── OTel Collector ClusterRole ───────────────────────────────────────────────
+## Required for:
+##   - kubeletstats receiver: needs nodes/stats and nodes/proxy
+##   - k8sattributes processor: needs pods, namespaces, replicasets
+##   - filelog receiver: runs as DaemonSet on host, no k8s API needed for file access
+##   EXPLICITLY DENIED: write access to any resource
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector
+  labels:
+    managed-by: sentinelops
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/stats      # required by kubeletstats receiver
+      - nodes/proxy      # required by kubeletstats endpoint discovery
+      - pods
+      - namespaces
+      - services
+      - endpoints
+    verbs: ["get", "list", "watch"]   # read-only; no create/update/delete/patch
+  - apiGroups: ["apps"]
+    resources:
+      - replicasets
+      - deployments
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector
+  labels:
+    managed-by: sentinelops
+subjects:
+  - kind: ServiceAccount
+    name: otel-collector
+    namespace: observability
+roleRef:
+  kind: ClusterRole
+  name: otel-collector
+  apiGroup: rbac.authorization.k8s.io
+
+---
+## ── Incident Normalizer Role ──────────────────────────────────────────────────
+## The normalizer calls Loki/Prometheus over HTTP — it does NOT call the k8s API.
+## It gets a Role with zero permissions as an explicit declaration of that intent.
+## This prevents privilege escalation if the SA is ever accidentally given a token.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: incident-normalizer
+  namespace: default
+  labels:
+    managed-by: sentinelops
+rules: []   # INTENTIONALLY EMPTY — normalizer has zero k8s API permissions
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: incident-normalizer
+  namespace: default
+  labels:
+    managed-by: sentinelops
+subjects:
+  - kind: ServiceAccount
+    name: incident-normalizer
+    namespace: default
+roleRef:
+  kind: Role
+  name: incident-normalizer
+  apiGroup: rbac.authorization.k8s.io
+
+---
+## ── SentinelOps Agent Role ────────────────────────────────────────────────────
+## The agent process calls: OPA (HTTP :8181), Qdrant (HTTP :6333),
+## Ollama (HTTP :11434), GitHub API (HTTPS) — none via k8s API.
+## Zero k8s API permissions, same explicit declaration pattern.
+
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sentinelops-agent
+  namespace: default
+  labels:
+    managed-by: sentinelops
+rules: []   # INTENTIONALLY EMPTY — agent has zero k8s API permissions
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sentinelops-agent
+  namespace: default
+  labels:
+    managed-by: sentinelops
+subjects:
+  - kind: ServiceAccount
+    name: sentinelops-agent
+    namespace: default
+roleRef:
+  kind: Role
+  name: sentinelops-agent
+  apiGroup: rbac.authorization.k8s.io
+
+---
+## ── Prometheus Operator permissions (kube-prometheus-stack manages these) ─────
+## These are created automatically by the kube-prometheus-stack Helm chart.
+## Listed here as documentation of what the stack installs, NOT applied manually.
+## Do not create these manually — Helm owns them.
+##
+## kube-prometheus-stack creates:
+##   ClusterRole: kube-prometheus-kube-state-metrics
+##   ClusterRole: kube-prometheus-prometheus
+##   ClusterRole: kube-prometheus-operator
+##   ClusterRoleBinding: (same names)
+## All are read-only on cluster resources.

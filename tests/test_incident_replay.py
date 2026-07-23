@@ -70,8 +70,9 @@ class TestWebhookParsing:
     def setup(self, monkeypatch):
         """Patch external calls so unit tests don't require live services."""
         # Patch Loki log fetch — return deterministic sample logs
+        # Target the alias `incident_normalizer` registered by tests/conftest.py
         monkeypatch.setattr(
-            "incident-normalizer.webhook_server.fetch_loki_logs",
+            "incident_normalizer.webhook_server.fetch_loki_logs",
             lambda pod_name, namespace="apps": [
                 "ERROR: out of memory",
                 "WARN: memory usage at 95%",
@@ -80,12 +81,16 @@ class TestWebhookParsing:
         )
         # Patch Prometheus metrics fetch — return sample metrics
         monkeypatch.setattr(
-            "incident-normalizer.webhook_server.fetch_recent_metrics",
-            lambda pod_name, namespace: {"memory_usage_bytes": 125000000.0, "restart_count": 3.0}
+            "incident_normalizer.webhook_server.fetch_recent_metrics",
+            lambda pod_name, namespace: {
+                "memory_usage_bytes": 125000000.0,
+                "restart_count": 3.0,
+                "metric_fetch_errors": ["cpu_usage_cores:timeout"],
+            }
         )
         # Patch pipeline dispatch — no-op in unit tests
         monkeypatch.setattr(
-            "incident-normalizer.webhook_server.dispatch_to_pipeline",
+            "incident_normalizer.webhook_server.dispatch_to_pipeline",
             lambda incident: None
         )
         from incident_normalizer import webhook_server  # noqa
@@ -136,12 +141,14 @@ class TestIncidentSchema:
             alert_labels={"alertname": "PodCrashLooping"},
             recent_logs=["ERROR: OOMKilled"],
             recent_metrics={"memory_usage_bytes": 125000000.0},
+            metric_fetch_errors=["cpu_usage_cores:timeout"],
             k8s_objects=[],
             trace_refs=[]
         )
         assert incident.id == "test-uuid-1234"
         assert incident.severity == "critical"
         assert len(incident.recent_logs) == 1
+        assert incident.metric_fetch_errors == ["cpu_usage_cores:timeout"]
 
     def test_incident_dict_roundtrip(self):
         """Incident must serialize to dict and reconstruct cleanly."""
@@ -156,9 +163,10 @@ class TestIncidentSchema:
             alert_labels={},
             recent_logs=[],
             recent_metrics={},
+            metric_fetch_errors=[],
             k8s_objects=[],
             trace_refs=[]
         )
-        serialized = incident.dict()
+        serialized = incident.model_dump()
         reconstructed = Incident(**serialized)
         assert reconstructed == incident

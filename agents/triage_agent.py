@@ -15,12 +15,17 @@ Output state keys written:
 
 import json
 import logging
+import os
 
 import ollama
 
 log = logging.getLogger("triage-agent")
 
-MODEL = "qwen3-coder"
+# Configurable via env so users can pin a specific tag (e.g. "qwen3-coder:30b").
+# `ollama list` shows available models; the bare name "qwen3-coder" works only if
+# a tag-less alias exists. Default to "qwen3-coder:latest" which ollama resolves
+# to the most recently pulled qwen3-coder variant.
+MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder:latest")
 
 SYSTEM_PROMPT = """\
 You are a senior Site Reliability Engineer performing incident triage.

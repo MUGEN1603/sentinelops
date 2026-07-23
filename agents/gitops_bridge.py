@@ -13,7 +13,7 @@ Exit check:
     python -c "
     from agents.gitops_bridge import open_remediation_pr
     url = open_remediation_pr(
-        repo_name='<username>/sentinelops',
+        repo_name='gauravpandey/sentinelops',  # replace with your owner/repo
         incident_id='test-abc123',
         file_path='gitops/manifests/sample-app-deployment.yaml',
         new_content='# test patch content',
@@ -32,11 +32,23 @@ from github import Github, GithubException
 log = logging.getLogger("gitops-bridge")
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
-GITHUB_REPO  = os.getenv("GITHUB_REPO",  "<your-username>/sentinelops")
-BASE_BRANCH  = "main"
+GITHUB_REPO  = os.getenv("GITHUB_REPO",  "")
+BASE_BRANCH  = os.getenv("GITHUB_BASE_BRANCH", "main")
 
 # Auto-merge only for low risk — set to False to always require human review
 AUTO_MERGE_LOW_RISK = os.getenv("AUTO_MERGE_LOW_RISK", "false").lower() == "true"
+
+
+def _resolve_repo_name(repo_name: str | None) -> str:
+    """Resolve the target GitHub repo, falling back through explicit arg -> env."""
+    name = repo_name or GITHUB_REPO
+    if not name or "SENTINELOPS_REPO_OWNER" in name or "<" in name:
+        raise RuntimeError(
+            "GitHub repo name not configured. Set GITHUB_REPO env var to "
+            "'owner/repo' (e.g. 'gauravpandey/sentinelops'), or pass repo_name= "
+            "explicitly to open_remediation_pr()."
+        )
+    return name
 
 
 def open_remediation_pr(
@@ -68,6 +80,7 @@ def open_remediation_pr(
             "Create a token with repo:write scope and export GITHUB_TOKEN=<token>"
         )
 
+    repo_name = _resolve_repo_name(repo_name)
     g    = Github(GITHUB_TOKEN)
     repo = g.get_repo(repo_name)
 

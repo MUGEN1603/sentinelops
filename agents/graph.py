@@ -70,6 +70,11 @@ def build_graph() -> StateGraph:
     The graph is compiled with a SQLite checkpointer so that partial progress
     is persisted to disk. If the process crashes between any two nodes, re-invoking
     with the same thread_id resumes from the last completed node.
+
+    NOTE: A NEW graph/checkpointer is built on every call. This is intentional so
+    that tests (and the webhook server) pick up a freshly-set
+    `SENTINELOPS_CHECKPOINT_DB` env var. Use `get_graph()` for a cached singleton
+    within a single process.
     """
     workflow = StateGraph(GraphState)
 
@@ -94,5 +99,24 @@ def build_graph() -> StateGraph:
     return compiled
 
 
-# Module-level singleton — imported by the webhook server
-graph = build_graph()
+# ── Lazily-built process singleton ────────────────────────────────────────────
+# We avoid `graph = build_graph()` at module load time because that would open the
+# SQLite checkpoint DB before a test has a chance to set SENTINELOPS_CHECKPOINT_DB.
+# `get_graph()` builds the singleton on first call (after env is configured).
+_graph_singleton = None
+
+
+def get_graph():
+    """Return the process-wide compiled graph singleton, built lazily on first call."""
+    global _graph_singleton
+    if _graph_singleton is None:
+        _graph_singleton = build_graph()
+    return _graph_singleton
+
+
+# Backwards-compat: `from agents.graph import graph` still works in the webhook
+# server and runbook samples. Use `get_graph()` in tests to control DB path.
+def __getattr__(name):
+    if name == "graph":
+        return get_graph()
+    raise AttributeError(f"module 'agents.graph' has no attribute {name!r}")

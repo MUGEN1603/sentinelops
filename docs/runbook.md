@@ -286,7 +286,7 @@ curl -X POST localhost:8181/v1/data/sentinelops/remediation/allow \
 
 **Trigger full pipeline on real /leak-memory incident** (Checks 3+4+5 must have passed first).
 
-Confirm a PR appears at: `https://github.com/<your-username>/sentinelops/pulls`
+Confirm a PR appears at: `https://github.com/$GITHUB_REPO/pulls`
 
 Expected PR:
 - Title: `🔧 Auto-remediation: incident <id> [medium risk]`
