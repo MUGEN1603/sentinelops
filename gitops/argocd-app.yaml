@@ -13,7 +13,7 @@
 ## (or use Kustomize + envsubst / Argo CD ApplicationSet with cluster vars).
 ##
 ## Example final value:
-##   repoURL: https://github.com/gauravpandey/sentinelops.git
+##   repoURL: https://github.com/MUGEN1603/sentinelops.git
 
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -25,20 +25,20 @@ metadata:
 spec:
   project: default
 
-  # ── Source: watch the gitops/manifests/ directory on main branch ────────────
+  # Source: watch the gitops/manifests/ directory on main branch
   source:
     # REPLACE with your real repo URL before `kubectl apply`.
-    # Example: https://github.com/gauravpandey/sentinelops.git
-    repoURL: https://github.com/SENTINELOPS_REPO_OWNER/SENTINELOPS_REPO_NAME.git
+    # Example: https://github.com/MUGEN1603/sentinelops.git
+    repoURL: https://github.com/MUGEN1603/sentinelops.git
     targetRevision: main
     path: gitops/manifests
 
-  # ── Destination: reconcile into the apps namespace ───────────────────────────
+  # Destination: reconcile into the apps namespace
   destination:
     server: https://kubernetes.default.svc
     namespace: apps
 
-  # ── Sync policy ─────────────────────────────────────────────────────────────
+  # Sync policy
   syncPolicy:
     automated:
       prune: true        # Remove resources that are in the cluster but not in Git
@@ -49,9 +49,8 @@ spec:
       - PruneLast=true              # Prune after all other resources are synced
       - ApplyOutOfSyncOnly=true     # Only apply resources that differ from Git
 
-  # NOTE: We do NOT use ignoreDifferences on /spec/replicas. The repo does NOT
-  # deploy an HPA, so /spec/replicas is owned exclusively by Git — Argo CD must
-  # observe and correct manual `kubectl scale` drift. Adding ignoreDifferences
-  # here would silently disable selfHeal for replica count, breaking the
-  # test_selfheal.py validation.
-
+    # NOTE: We do NOT use ignoreDifferences on /spec/replicas. The repo does NOT
+    # deploy an HPA, so /spec/replicas is owned exclusively by Git — Argo CD must
+    # observe and correct manual `kubectl scale` drift. Adding ignoreDifferences
+    # here would silently disable selfHeal for replica count, breaking the
+    # test_selfheal.py validation.

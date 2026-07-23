@@ -7,7 +7,6 @@ and builds a valid Incident object.
 Run: pytest tests/test_incident_replay.py -v
 """
 
-import json
 import sys
 import os
 

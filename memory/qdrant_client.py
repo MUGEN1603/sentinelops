@@ -176,9 +176,9 @@ def retrieve_similar(query_text: str, k: int = 3) -> list[dict]:
             {
                 "id":      str(r.id),
                 "score":   round(r.score, 4),
-                "rca":     r.payload.get("rca", ""),
-                "outcome": r.payload.get("outcome", ""),
-                "text":    r.payload.get("text", ""),
+                "rca":     (r.payload or {}).get("rca", ""),
+                "outcome": (r.payload or {}).get("outcome", ""),
+                "text":    (r.payload or {}).get("text", ""),
             }
             for r in results
         ]

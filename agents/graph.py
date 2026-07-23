@@ -43,6 +43,7 @@ Exit check:
 """
 
 import logging
+from typing import Any
 
 from langgraph.graph import StateGraph, END
 
@@ -56,7 +57,7 @@ from agents.policy_review_agent import policy_review_agent
 log = logging.getLogger("agent-graph")
 
 
-def build_graph() -> StateGraph:
+def build_graph() -> Any:  # type: ignore[return-value]
     """
     Construct and compile the SentinelOps agent graph.
 
@@ -79,10 +80,10 @@ def build_graph() -> StateGraph:
     workflow = StateGraph(GraphState)
 
     # ── Register nodes ────────────────────────────────────────────────────────
-    workflow.add_node("triage",        triage_agent)
-    workflow.add_node("diagnosis",     diagnosis_agent)
-    workflow.add_node("remediation",   remediation_agent)
-    workflow.add_node("policy_review", policy_review_agent)
+    workflow.add_node("triage",        triage_agent)       # type: ignore[type-var]
+    workflow.add_node("diagnosis",     diagnosis_agent)    # type: ignore[type-var]
+    workflow.add_node("remediation",   remediation_agent)  # type: ignore[type-var]
+    workflow.add_node("policy_review", policy_review_agent) # type: ignore[type-var]
 
     # ── Define edges (linear pipeline) ───────────────────────────────────────
     workflow.set_entry_point("triage")
@@ -93,7 +94,7 @@ def build_graph() -> StateGraph:
 
     # ── Compile with checkpointer ─────────────────────────────────────────────
     checkpointer = get_checkpointer()
-    compiled = workflow.compile(checkpointer=checkpointer)
+    compiled = workflow.compile(checkpointer=checkpointer)  # type: ignore[return-value]
 
     log.info("SentinelOps agent graph compiled (4 nodes, SQLite checkpointer)")
     return compiled
@@ -103,10 +104,10 @@ def build_graph() -> StateGraph:
 # We avoid `graph = build_graph()` at module load time because that would open the
 # SQLite checkpoint DB before a test has a chance to set SENTINELOPS_CHECKPOINT_DB.
 # `get_graph()` builds the singleton on first call (after env is configured).
-_graph_singleton = None
+_graph_singleton: Any | None = None
 
 
-def get_graph():
+def get_graph() -> Any:
     """Return the process-wide compiled graph singleton, built lazily on first call."""
     global _graph_singleton
     if _graph_singleton is None:
@@ -116,7 +117,7 @@ def get_graph():
 
 # Backwards-compat: `from agents.graph import graph` still works in the webhook
 # server and runbook samples. Use `get_graph()` in tests to control DB path.
-def __getattr__(name):
+def __getattr__(name: str) -> Any:
     if name == "graph":
         return get_graph()
     raise AttributeError(f"module 'agents.graph' has no attribute {name!r}")

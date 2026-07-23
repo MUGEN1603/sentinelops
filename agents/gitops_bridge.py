@@ -6,14 +6,14 @@ Creates a branch, commits the patch, and opens a PR.
 
 Environment variables required:
   GITHUB_TOKEN  — Personal Access Token with repo:write scope
-  GITHUB_REPO   — Repository in "owner/repo" format (e.g. "gauravpandey/sentinelops")
+  GITHUB_REPO   — Repository in "owner/repo" format (e.g. "MUGEN1603/sentinelops")
 
 Exit check:
   Set GITHUB_TOKEN and GITHUB_REPO, then run:
     python -c "
     from agents.gitops_bridge import open_remediation_pr
     url = open_remediation_pr(
-        repo_name='gauravpandey/sentinelops',  # replace with your owner/repo
+        repo_name='MUGEN1603/sentinelops',  # replace with your owner/repo
         incident_id='test-abc123',
         file_path='gitops/manifests/sample-app-deployment.yaml',
         new_content='# test patch content',
@@ -45,7 +45,7 @@ def _resolve_repo_name(repo_name: str | None) -> str:
     if not name or "SENTINELOPS_REPO_OWNER" in name or "<" in name:
         raise RuntimeError(
             "GitHub repo name not configured. Set GITHUB_REPO env var to "
-            "'owner/repo' (e.g. 'gauravpandey/sentinelops'), or pass repo_name= "
+            "'owner/repo' (e.g. 'MUGEN1603/sentinelops'), or pass repo_name= "
             "explicitly to open_remediation_pr()."
         )
     return name
@@ -101,6 +101,10 @@ def open_remediation_pr(
     # ── Commit patched file to the branch ─────────────────────────────────────
     try:
         existing = repo.get_contents(file_path, ref=BASE_BRANCH)
+        # get_contents can return a list or single ContentFile
+        if isinstance(existing, list):
+            # Directory - shouldn't happen for a file path, but handle gracefully
+            raise RuntimeError(f"Path {file_path} is a directory, not a file")
         repo.update_file(
             path=file_path,
             message=f"fix(auto): remediate incident {incident_id[:8]}",

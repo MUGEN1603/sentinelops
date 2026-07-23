@@ -16,8 +16,6 @@ import os
 import sys
 import uuid
 import json
-import threading
-import time
 
 import pytest
 

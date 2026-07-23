@@ -6,7 +6,7 @@ Changing a field here requires updating every agent node that reads or writes it
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, TypedDict
 import datetime
 
 
@@ -87,7 +87,6 @@ class GitOpsChange(BaseModel):
 # `class GraphState(dict)` causes invoke() to silently return None because
 # LangGraph treats it as "no schema defined". Using TypedDict with total=False
 # lets every key be optional (nodes set only the keys they produce).
-from typing import TypedDict
 
 
 class GraphState(TypedDict, total=False):
