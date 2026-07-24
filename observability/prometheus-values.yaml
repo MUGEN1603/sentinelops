@@ -58,12 +58,37 @@ alertmanager:
 # ──────────────────────────────────────────────
 # Grafana — enable with default dashboard
 # ──────────────────────────────────────────────
+# Grafana — enable with default dashboard
+# ──────────────────────────────────────────────
 # For production: create a Kubernetes Secret with the admin password and
 # reference it via `grafana.admin.existingSecret` instead of hardcoding here.
 # See infra/secrets.yaml (grafana-admin-credentials) for the Secret template.
 grafana:
   enabled: true
   adminPassword: "sentinelops-admin"  # CHANGE THIS for any non-local deployment
+  # Explicit datasource config to avoid "multiple default datasources" conflict
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          uid: prometheus
+          url: http://kube-prometheus-kube-prome-prometheus.observability.svc:9090
+          access: proxy
+          isDefault: true
+          jsonData:
+            httpMethod: POST
+            timeInterval: 30s
+        - name: Alertmanager
+          type: alertmanager
+          uid: alertmanager
+          url: http://kube-prometheus-kube-prome-alertmanager.observability.svc:9093
+          access: proxy
+          isDefault: false
+          jsonData:
+            handleGrafanaManagedAlerts: false
+            implementation: prometheus
   resources:
     requests:
       cpu: 100m

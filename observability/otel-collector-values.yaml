@@ -4,6 +4,9 @@
 
 mode: daemonset
 
+image:
+  repository: otel/opentelemetry-collector-contrib
+
 # Give the collector permission to access kubelet and k8s API
 serviceAccount:
   create: true
@@ -117,9 +120,9 @@ config:
   # EXPORTERS
   # ─────────────────────────────────────────────
   exporters:
-    # Log exporter — writes to stdout (visible in collector pod logs)
-    # For production: replace with otlp to Grafana Tempo or Jaeger
-    logging:
+    # Debug exporter — writes to stdout (visible in collector pod logs)
+    # Replaces deprecated logging exporter
+    debug:
       verbosity: basic
       sampling_initial: 5
       sampling_thereafter: 200
@@ -143,11 +146,11 @@ config:
         # Send kubeletstats metrics to BOTH stdout (debug) and Prometheus.
         receivers: [kubeletstats]
         processors: [memory_limiter, k8sattributes, batch]
-        exporters: [logging, prometheusremotewrite]
+        exporters: [debug, prometheusremotewrite]
       logs:
         receivers: [filelog]
         processors: [memory_limiter, k8sattributes, batch]
-        exporters: [logging]
+        exporters: [debug]
 
 # Resource limits for the collector DaemonSet pod
 resources:
@@ -176,7 +179,7 @@ extraVolumeMounts:
     readOnly: true
 
 # Required env var for kubeletstats endpoint
-env:
+extraEnvs:
   - name: K8S_NODE_NAME
     valueFrom:
       fieldRef:
