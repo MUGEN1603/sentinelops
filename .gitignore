@@ -30,3 +30,5 @@ Thumbs.db
 .env
 *.env
 secrets.local.yaml
+*.db-shm
+*.db-wal
