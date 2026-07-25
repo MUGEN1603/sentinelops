@@ -368,7 +368,7 @@ class TestLangGraphPipeline:
             from agents.graph import get_graph
             graph = get_graph()
             test_incident = {
-                "id": "test-verification-001",
+                "id": "550e8400-e29b-41d4-a716-446655440000",
                 "started_at": "2024-01-01T00:00:00Z",
                 "namespace": "apps",
                 "workload": "sample-app-test",
@@ -522,7 +522,7 @@ class TestQdrantMemory:
                 "http://localhost:6333/collections/incidents/points",
                 json={
                     "points": [{
-                        "id": "test-verification-001",
+                        "id": "550e8400-e29b-41d4-a716-446655440000",
                         "vector": [0.1] * 384,
                         "payload": {"rca": "test cause", "outcome": "resolved"}
                     }]
@@ -538,7 +538,7 @@ class TestQdrantMemory:
                 timeout=3
             )
             assert search_resp.status_code == 200
-            results = search_resp.json()["result"]
+            results = search_resp.json()["result"]["points"]
             assert len(results) == 1
             assert results[0]["payload"]["rca"] == "test cause"
         except requests.RequestException as e:
