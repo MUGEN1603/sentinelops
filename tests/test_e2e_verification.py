@@ -11,8 +11,6 @@ import os
 import sys
 import subprocess
 import time
-import json
-import logging
 
 import pytest
 import requests
@@ -402,7 +400,6 @@ class TestLangGraphPipeline:
         try:
             os.environ["SENTINELOPS_CHECKPOINT_DB"] = db_path
             from agents.graph import get_graph
-            from agents.checkpointer_config import get_checkpointer
             
             graph = get_graph()
             test_incident = {

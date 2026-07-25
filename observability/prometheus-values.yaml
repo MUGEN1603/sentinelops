@@ -110,10 +110,25 @@ kubeProxy:
 # Fix port 10250 conflict: node exporter uses hostNetwork,
 # which conflicts with Prometheus operator's admission webhook
 # on the same port. Disable hostNetwork on node exporter.
+# Also fix kube-state-metrics: disable hostNetwork to avoid
+# port conflicts and scheduling issues on control-plane node.
 # ──────────────────────────────────────────────
 prometheus-node-exporter:
   hostNetwork: false
   hostPort: 9100
+  resources:
+    requests:
+      cpu: 100m
+      memory: 50Mi
+    limits:
+      cpu: 200m
+      memory: 100Mi
+
+kubeStateMetrics:
+  hostNetwork: false
+  # Disable nodeSelector to allow scheduling on any worker node
+  # (avoids port conflicts on control-plane node)
+  nodeSelector: {}
   resources:
     requests:
       cpu: 100m
