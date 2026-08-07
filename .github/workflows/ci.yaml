@@ -1,6 +1,6 @@
 name: CI/CD Pipeline
 
-on:  # yamllint disable-line truthy
+on:
   push:
     branches:
       - main
@@ -10,6 +10,8 @@ on:  # yamllint disable-line truthy
 
 env:
   PYTHON_VERSION: "3.12"
+  # Fix pytest cache permission issues on macOS runners
+  PYTEST_CACHE_DIR: /tmp/.pytest_cache
 
 jobs:
   lint-and-test:
@@ -41,7 +43,7 @@ jobs:
       - name: Type check with mypy
         run: |
           pip install mypy
-          mypy --ignore-missing-imports agents/ memory/ || true
+          mypy --ignore-missing-imports agents/ memory/
 
       - name: Run OPA policy tests
         run: |
@@ -57,7 +59,7 @@ jobs:
             --cov=agents \
             --cov=incident_normalizer \
             --cov=memory \
-            --cov-fail-under=50 \
+            --cov-fail-under=60 \
             --cov-report=term-missing \
             --cov-report=xml
 
@@ -144,7 +146,7 @@ jobs:
 
       - name: Install kind
         run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux_amd64
           chmod +x ./kind
           sudo mv ./kind /usr/local/bin/kind
 

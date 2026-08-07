@@ -28,6 +28,7 @@ Usage:
 import os
 import sqlite3
 import logging
+from pathlib import Path
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 log = logging.getLogger("checkpointer")
@@ -62,12 +63,16 @@ def get_checkpointer() -> SqliteSaver:
     """
     log.info("Opening SQLite checkpoint database at: %s", CHECKPOINT_DB_PATH)
 
+    # Ensure the directory for the database file exists
+    db_path = Path(CHECKPOINT_DB_PATH)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
     # Open the connection directly — check_same_thread=False is required
     # because the webhook server dispatches pipeline invocations from daemon
     # threads (one per incoming alert), and SQLite would otherwise raise:
     # "sqlite3.ProgrammingError: SQLite objects created in a thread can only
     #  be used in that same thread"
-    conn = sqlite3.connect(CHECKPOINT_DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
 
     saver = SqliteSaver(conn)
     log.info("SqliteSaver ready (type=%s)", type(saver).__name__)
