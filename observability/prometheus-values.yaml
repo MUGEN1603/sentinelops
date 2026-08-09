@@ -47,13 +47,41 @@ alertmanager:
       group_interval: 30s
       repeat_interval: 1h
       receiver: sentinelops-webhook
+      routes:
+        # Watchdog is a heartbeat alert — send to "null" (drop) receiver
+        # to avoid spamming the incident normalizer with non-incident alerts.
+        - matchers:
+            - alertname = "Watchdog"
+          receiver: "null"
     receivers:
+      # "null" receiver — drops alerts silently. Required by the Watchdog route.
+      - name: "null"
       - name: sentinelops-webhook
         webhook_configs:
           # When running incident-normalizer locally via port-forward,
           # replace with the actual accessible URL or k8s service URL.
           - url: "http://host.docker.internal:8000/webhook"
             send_resolved: true
+
+# ──────────────────────────────────────────────
+# Prometheus Operator — fix liveness probe timeouts
+# The operator needs time to sync informer caches on startup;
+# the default 30s (3 failures × 10s) is too aggressive for kind clusters.
+# ──────────────────────────────────────────────
+prometheusOperator:
+  admissionWebhooks:
+    enabled: true
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+  livenessProbe:
+    initialDelaySeconds: 60
+    failureThreshold: 10
+    timeoutSeconds: 5
+  readinessProbe:
+    initialDelaySeconds: 30
+    failureThreshold: 10
+    timeoutSeconds: 5
 
 # ──────────────────────────────────────────────
 # Grafana — enable with default dashboard
