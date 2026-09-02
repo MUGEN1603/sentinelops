@@ -78,14 +78,13 @@ class TestWebhookParsing:
                 "INFO: container started"
             ]
         )
-        # Patch Prometheus metrics fetch — return sample metrics
+        # Patch Prometheus metrics fetch — return sample metrics as tuple (metrics, errors)
         monkeypatch.setattr(
             "incident_normalizer.webhook_server.fetch_recent_metrics",
-            lambda pod_name, namespace: {
-                "memory_usage_bytes": 125000000.0,
-                "restart_count": 3.0,
-                "metric_fetch_errors": ["cpu_usage_cores:timeout"],
-            }
+            lambda pod_name, namespace: (
+                {"memory_usage_bytes": 125000000.0, "restart_count": 3.0},
+                ["cpu_usage_cores:timeout"]
+            )
         )
         # Patch pipeline dispatch — no-op in unit tests
         monkeypatch.setattr(

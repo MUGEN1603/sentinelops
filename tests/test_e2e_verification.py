@@ -663,14 +663,16 @@ def pytest_terminal_summary(terminalreporter, exitstatus, config):
         passed = 0
         failed = 0
         skipped = 0
-        for item in terminalreporter._getfailed() + terminalreporter._getpassed() + terminalreporter._getskipped():
-            if hasattr(item, 'cls') and item.cls and item.cls.__name__ == class_name:
-                if item.outcome == "passed":
-                    passed += 1
-                elif item.outcome == "failed":
-                    failed += 1
-                elif item.outcome == "skipped":
-                    skipped += 1
+        # Use public stats API instead of private _getfailed/_getpassed/_getskipped
+        for outcome_key in ("passed", "failed", "skipped"):
+            for item in terminalreporter.stats.get(outcome_key, []):
+                if hasattr(item, 'cls') and item.cls and item.cls.__name__ == class_name:
+                    if outcome_key == "passed":
+                        passed += 1
+                    elif outcome_key == "failed":
+                        failed += 1
+                    elif outcome_key == "skipped":
+                        skipped += 1
         
         status = "✅ PASS" if failed == 0 and passed > 0 else ("⏭️  SKIP" if skipped > 0 and passed == 0 else "❌ FAIL")
         print(f"  {layer_name:35s}  {status}  (passed={passed}, skipped={skipped}, failed={failed})")

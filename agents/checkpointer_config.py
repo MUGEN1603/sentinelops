@@ -33,11 +33,6 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 log = logging.getLogger("checkpointer")
 
-CHECKPOINT_DB_PATH = os.getenv(
-    "SENTINELOPS_CHECKPOINT_DB",
-    "sentinelops_checkpoints.db"
-)
-
 
 def get_checkpointer() -> SqliteSaver:
     """
@@ -61,10 +56,17 @@ def get_checkpointer() -> SqliteSaver:
         conn = psycopg.connect(os.environ["DATABASE_URL"])
         return PostgresSaver(conn)
     """
-    log.info("Opening SQLite checkpoint database at: %s", CHECKPOINT_DB_PATH)
+    # Read env var at call time so tests can override SENTINELOPS_CHECKPOINT_DB
+    # after importing this module (see test_state_durability.py)
+    checkpoint_db_path = os.getenv(
+        "SENTINELOPS_CHECKPOINT_DB",
+        "sentinelops_checkpoints.db"
+    )
+
+    log.info("Opening SQLite checkpoint database at: %s", checkpoint_db_path)
 
     # Ensure the directory for the database file exists
-    db_path = Path(CHECKPOINT_DB_PATH)
+    db_path = Path(checkpoint_db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Open the connection directly — check_same_thread=False is required

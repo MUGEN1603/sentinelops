@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Resolve script directory for portable paths
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
 echo "=========================================="
 echo "SENTINEL OPS - FINAL END-TO-END VERIFICATION"
 echo "=========================================="
@@ -14,10 +17,10 @@ check() {
   local cmd=$2
   if eval "$cmd" >/dev/null 2>&1; then
     echo "✅ $name"
-    ((PASS++))
+    PASS=$((PASS + 1))
   else
     echo "❌ $name"
-    ((FAIL++))
+    FAIL=$((FAIL + 1))
   fi
 }
 
@@ -50,7 +53,7 @@ check "Prometheus Webhook Receiver" "kubectl get svc -n observability kube-prome
 
 echo ""
 echo "=== 4. LANGGRAPH PIPELINE ==="
-check "Pipeline Compiles" "cd /Users/gauravpandey/Desktop/MydevopsProj/sentinelops && .venv/bin/python -c 'from agents.graph import build_graph; g=build_graph(); print(\"OK\")' 2>&1 | grep -q OK"
+check "Pipeline Compiles" "cd \"$SCRIPT_DIR\" && .venv/bin/python -c 'from agents.graph import build_graph; g=build_graph(); print(\"OK\")' 2>&1 | grep -q OK"
 check "State Durability (3/3 tests)" ".venv/bin/pytest tests/test_state_durability.py -v --tb=short 2>&1 | grep -q '3 passed'"
 
 echo ""
@@ -66,7 +69,7 @@ check "Argo CD App Synced" "kubectl get application sentinelops-app -n argocd -o
 check "Argo CD App Healthy" "kubectl get application sentinelops-app -n argocd -o jsonpath='{.status.health.status}' | grep -q Healthy"
 check "Argo CD Self-Heal Enabled" "kubectl get application sentinelops-app -n argocd -o jsonpath='{.spec.syncPolicy.automated.selfHeal}' | grep -q true"
 check "GitOps Manifests Tracked" "kubectl get application sentinelops-app -n argocd -o jsonpath='{.spec.source.path}' | grep -q 'gitops/manifests'"
-check "GitOps Manifest Exists" "test -f /Users/gauravpandey/Desktop/MydevopsProj/sentinelops/gitops/manifests/sample-app-deployment.yaml"
+check "GitOps Manifest Exists" "test -f \"$SCRIPT_DIR/gitops/manifests/sample-app-deployment.yaml\""
 check "Sample App Deployment Exists" "kubectl get deployment sample-app -n apps --no-headers 2>/dev/null | grep -q sample-app"
 check "Sample App Pod Running" "kubectl get pods -n apps -l app=sample-app --no-headers | grep -q Running"
 check "Sample App Service" "kubectl get svc sample-app -n apps --no-headers 2>/dev/null | grep -q sample-app"
@@ -96,7 +99,7 @@ fi
 
 echo ""
 echo "=== 8. QUALITY GATES ==="
-check "Ruff lint clean" "cd /Users/gauravpandey/Desktop/MydevopsProj/sentinelops && .venv/bin/python -m ruff check . 2>&1 | tail -1 | grep -q 'All checks passed'"
+check "Ruff lint clean" "cd \"$SCRIPT_DIR\" && .venv/bin/python -m ruff check . 2>&1 | tail -1 | grep -q 'All checks passed'"
 check "Unit tests pass (incident replay + state durability)" ".venv/bin/pytest tests/test_incident_replay.py tests/test_state_durability.py -v --tb=short 2>&1 | grep -qE '[0-9]+ passed'"
 
 echo ""

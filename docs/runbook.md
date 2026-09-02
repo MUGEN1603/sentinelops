@@ -152,8 +152,10 @@ curl -X POST localhost:8000/webhook \
 ```python
 # Run from repo root
 python -c "
-from agents.graph import graph
+from agents.graph import build_graph
 import uuid
+
+graph = build_graph()
 
 incident = {
     'id': str(uuid.uuid4()),

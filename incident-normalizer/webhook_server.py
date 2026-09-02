@@ -108,7 +108,7 @@ def fetch_loki_logs(pod_name: str, namespace: str = "apps") -> list[str]:
 # Metrics fetcher (stub — extend to query Prometheus HTTP API)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def fetch_recent_metrics(pod_name: str, namespace: str) -> dict[str, float]:
+def fetch_recent_metrics(pod_name: str, namespace: str) -> tuple[dict[str, float], list[str]]:
     """
     Query Prometheus for key point-in-time metrics for the affected pod.
 
@@ -117,13 +117,12 @@ def fetch_recent_metrics(pod_name: str, namespace: str) -> dict[str, float]:
       - rate(container_cpu_usage_seconds_total[5m])
       - kube_pod_container_status_restarts_total
 
-    Returns a dict of {metric_name: float_value}.
+    Returns a tuple of (metrics_dict, error_list).
+    metrics_dict: {metric_name: float_value}
+    error_list: list of strings describing failed metric fetches.
     If Prometheus is unreachable or a query returns no data, the metric is
-    absent from the dict and its name is logged + recorded in _fetch_errors
-    so downstream agents know the context is incomplete (not silently missing).
-
-    The special key "_fetch_errors" holds a list of metric names that failed.
-    Downstream agents should treat its presence as a signal that RCA may have
+    absent from the dict and its name is recorded in the error list.
+    Downstream agents should treat error_list as a signal that RCA may have
     incomplete metric context.
     """
     PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://localhost:9090")
@@ -185,16 +184,12 @@ def fetch_recent_metrics(pod_name: str, namespace: str) -> dict[str, float]:
             "Incomplete metrics for pod=%s: %d/%d metrics failed: %s",
             pod_name, len(failed_metrics), len(queries), failed_metrics
         )
-        # Surface missing-metric context as a separate field rather than
-        # polluting recent_metrics (which is typed Dict[str, float] in the
-        # Pydantic Incident schema and would raise ValidationError on a list).
-        metrics["metric_fetch_errors"] = failed_metrics  # type: ignore[assignment]
 
     log.info(
         "Metrics fetch complete for pod=%s: %d/%d succeeded",
         pod_name, len(queries) - len(failed_metrics), len(queries)
     )
-    return metrics
+    return metrics, failed_metrics
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -267,10 +262,7 @@ async def receive_alert(request: Request) -> JSONResponse:
         namespace = labels.get("namespace", "apps")
 
         # Build incident context: metrics dict and any fetch-error list
-        raw_metrics = fetch_recent_metrics(pod_name, namespace)
-        metric_errors = raw_metrics.pop("metric_fetch_errors", []) if isinstance(
-            raw_metrics.get("metric_fetch_errors"), list
-        ) else raw_metrics.pop("_fetch_errors", [])
+        raw_metrics, metric_errors = fetch_recent_metrics(pod_name, namespace)
 
         incident = Incident(
             id=str(uuid.uuid4()),
@@ -281,7 +273,7 @@ async def receive_alert(request: Request) -> JSONResponse:
             severity=labels.get("severity", "unknown"),
             alert_labels=labels,
             recent_logs=fetch_loki_logs(pod_name, namespace),
-            recent_metrics={k: v for k, v in raw_metrics.items() if isinstance(v, (int, float))},
+            recent_metrics=raw_metrics,
             metric_fetch_errors=metric_errors,
             k8s_objects=[],    # extend: query k8s API for pod spec + events
             trace_refs=[]      # extend: correlate from OTel collector

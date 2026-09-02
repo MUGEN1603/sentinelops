@@ -128,7 +128,8 @@ jobs:
       - name: Build incident-normalizer image
         uses: docker/build-push-action@v5
         with:
-          context: ./incident-normalizer
+          context: .
+          file: ./incident-normalizer/Dockerfile
           push: false
           load: true
           tags: sentinelops/incident-normalizer:test

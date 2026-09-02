@@ -6,7 +6,7 @@ LABEL description="Incident Normalizer — AlertManager webhook receiver and Lan
 WORKDIR /app
 
 # Install dependencies first (layer cached separately from code)
-COPY requirements.txt .
+COPY incident-normalizer/requirements.txt .
 RUN pip install --no-cache-dir \
     fastapi \
     uvicorn \
@@ -38,4 +38,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/health').raise_for_status()" || exit 1
 
 # Run the webhook server
-CMD ["uvicorn", "webhook_server:app", "--host", "0.0.0.0", "--port", "8000", "--access-log"]
+CMD ["uvicorn", "incident-normalizer.webhook_server:app", "--host", "0.0.0.0", "--port", "8000", "--access-log"]
