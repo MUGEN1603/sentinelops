@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 # Resolve script directory for portable paths
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

@@ -25,6 +25,9 @@ RUN useradd -r -u 1000 -g users appuser
 # Copy application code — the normalizer needs agents/, memory/ for imports
 COPY . /app/
 
+# Python doesn't allow hyphens in module names; create valid module alias
+RUN ln -s /app/incident-normalizer /app/incident_normalizer
+
 # Ensure the app user owns the application files
 RUN chown -R appuser:users /app
 
@@ -38,4 +41,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/health').raise_for_status()" || exit 1
 
 # Run the webhook server
-CMD ["uvicorn", "incident-normalizer.webhook_server:app", "--host", "0.0.0.0", "--port", "8000", "--access-log"]
+CMD ["uvicorn", "incident_normalizer.webhook_server:app", "--host", "0.0.0.0", "--port", "8000", "--access-log"]

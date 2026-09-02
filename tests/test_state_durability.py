@@ -108,10 +108,14 @@ class TestStateDurability:
 
     @pytest.fixture(autouse=True)
     def mock_github(self, monkeypatch):
-        """Mock GitHub PR creation — don't require a real GITHUB_TOKEN."""
+        """Mock GitHub PR creation — don't require a real GITHUB_TOKEN.
+
+        Mirrors the real signature of agents.gitops_bridge.open_remediation_pr:
+        (repo_name, incident_id, file_path, new_content, rca_summary="", risk_level="medium")
+        """
         monkeypatch.setattr(
             "agents.gitops_bridge.open_remediation_pr",
-            lambda **kwargs: "https://github.com/mock/sentinelops/pull/1"
+            lambda repo_name="", incident_id="", file_path="", new_content="", rca_summary="", risk_level="medium": "https://github.com/mock/sentinelops/pull/1"
         )
 
     @pytest.fixture(autouse=True)
