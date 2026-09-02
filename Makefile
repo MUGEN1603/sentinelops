@@ -26,19 +26,31 @@ help:
 up: _qdrant _opa opa-load
 	@echo "✅ Qdrant (localhost:6333) and OPA (localhost:8181) are running"
 
+## `docker ps` lists RUNNING containers only, but `docker run --name` fails if a
+## STOPPED container already holds the name ("name is already in use"). After a
+## reboot or `docker stop`, plain `make up` would therefore fail. Check for an
+## existing container of any state and `docker start` it instead.
 _qdrant:
-	@docker ps --format '{{.Names}}' | grep -q '^qdrant$$' && \
-		echo "  qdrant: already running" || \
-		(docker run -d --name qdrant -p 6333:6333 \
+	@if docker ps --format '{{.Names}}' | grep -q '^qdrant$$'; then \
+		echo "  qdrant: already running"; \
+	elif docker ps -a --format '{{.Names}}' | grep -q '^qdrant$$'; then \
+		docker start qdrant >/dev/null && echo "  qdrant: restarted (existing container)"; \
+	else \
+		docker run -d --name qdrant -p 6333:6333 \
 			-v "$(PWD)/qdrant_storage:/qdrant/storage" \
-			qdrant/qdrant && echo "  qdrant: started")
+			qdrant/qdrant >/dev/null && echo "  qdrant: started"; \
+	fi
 
 _opa:
-	@docker ps --format '{{.Names}}' | grep -q '^opa$$' && \
-		echo "  opa:    already running" || \
-		(docker run -d --name opa -p 8181:8181 \
-			openpolicyagent/opa run --server --addr :8181 && echo "  opa:    started")
-	@sleep 2
+	@if docker ps --format '{{.Names}}' | grep -q '^opa$$'; then \
+		echo "  opa:    already running"; \
+	elif docker ps -a --format '{{.Names}}' | grep -q '^opa$$'; then \
+		docker start opa >/dev/null && echo "  opa:    restarted (existing container)"; \
+	else \
+		docker run -d --name opa -p 8181:8181 \
+			openpolicyagent/opa run --server --addr :8181 >/dev/null && echo "  opa:    started"; \
+	fi
+	@sleep 3
 
 opa-load:
 	@echo "  Loading OPA remediation policy..."

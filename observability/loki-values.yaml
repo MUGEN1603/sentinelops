@@ -3,7 +3,11 @@
 
 loki:
   enabled: true
-  isDefault: true
+  ## Must stay false: kube-prometheus-stack already marks Prometheus as the default
+  ## datasource. Two ConfigMaps with isDefault:true make Grafana's provisioning
+  ## reject the whole datasource set ("Only one datasource per organization can be
+  ## marked as default") and crashloop on startup.
+  isDefault: false
   persistence:
     enabled: false   # ephemeral for local dev; set true + storageClass for prod
   config:

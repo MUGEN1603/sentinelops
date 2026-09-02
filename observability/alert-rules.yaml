@@ -29,13 +29,17 @@ spec:
               has restarted {{ $value | humanize }} times in the last 5 minutes.
             runbook: "docs/runbook.md"
 
-        # Fires when a pod's memory usage exceeds 90% of its configured limit
+        # Fires when a pod's memory usage exceeds 90% of its configured limit.
+        # Limits come from kube-state-metrics, NOT cAdvisor: current cAdvisor does
+        # not export container_spec_memory_limit_bytes, so the previous expression
+        # divided by an absent series and could never fire.
+        # working_set_bytes (not usage_bytes) is what the OOM killer measures.
         - alert: HighMemoryUsage
           expr: |
             (
-              container_memory_usage_bytes{namespace="apps", container!=""}
-              /
-              container_spec_memory_limit_bytes{namespace="apps", container!=""}
+              container_memory_working_set_bytes{namespace="apps", container!=""}
+              / on(namespace, pod, container)
+              kube_pod_container_resource_limits{namespace="apps", resource="memory"}
             ) > 0.9
           for: 3m
           labels:

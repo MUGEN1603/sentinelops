@@ -22,8 +22,22 @@ def _run(cmd: str) -> tuple[int, str, str]:
     proc = subprocess.run(cmd, shell=True, capture_output=True, text=True)
     return proc.returncode, proc.stdout.strip(), proc.stderr.strip()
 
+# Every failure path in this module funnels through _skip_if_down, including real
+# functional failures ("webhook processing failed", "OPA protected namespace test
+# failed", "RBAC serviceaccount missing"). Reported as plain skips those go green,
+# so the suite cannot fail and a completely broken platform still passes CI.
+# STRICT mode converts them to failures; CI sets it, local runs leave it off so the
+# suite stays usable without the whole stack running.
+STRICT_E2E = os.environ.get("SENTINELOPS_STRICT_E2E", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
 def _skip_if_down(reason: str):
-    """Skip test with a descriptive reason."""
+    """Skip locally; fail under STRICT_E2E. Descriptive reason either way."""
+    if STRICT_E2E:
+        pytest.fail(f"STRICT_E2E: {reason}", pytrace=False)
     pytest.skip(f"Dependency unavailable: {reason}")
 
 # ── Layer 0: Local Infrastructure ───────────────────────────────────────────

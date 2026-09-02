@@ -57,7 +57,7 @@ jobs:
         run: |
           pytest tests/ -v \
             --cov=agents \
-            --cov=incident_normalizer \
+            --cov=incident-normalizer \
             --cov=memory \
             --cov-fail-under=60 \
             --cov-report=term-missing \

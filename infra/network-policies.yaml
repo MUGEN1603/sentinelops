@@ -147,7 +147,37 @@ spec:
           protocol: TCP
 
 ---
+## Allow egress to the Kubernetes API server.
+## Required by: prometheus-operator, promtail (pod discovery), grafana sidecars,
+## prometheus (service discovery), alertmanager.
+##
+## The destination MUST be the node IP + 6443, NOT the ClusterIP 10.96.0.1:443.
+## NetworkPolicy is evaluated after kube-proxy DNATs the ClusterIP to the real
+## endpoint, so an ipBlock of 10.96.0.1/32 never matches and the packet is dropped.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-apiserver-egress
+  namespace: observability
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 172.18.0.0/16   # kind docker bridge network (node IPs)
+      ports:
+        - port: 6443
+          protocol: TCP
+
+---
 ## Allow Prometheus to scrape pods across all namespaces (via pod scrape)
+## NOTE: this only covers EGRESS from Prometheus. Targets inside the observability
+## namespace additionally need an ingress allow (see allow-prometheus-scrape-ingress
+## below) because default-deny-all isolates ingress too.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -163,16 +193,47 @@ spec:
     - Egress
   egress:
     - ports:
+        - port: 3000
+          protocol: TCP   # grafana
         - port: 8080
-          protocol: TCP
+          protocol: TCP   # kube-state-metrics, sample-app
+        - port: 8081
+          protocol: TCP   # kube-state-metrics self-metrics
         - port: 9090
           protocol: TCP
         - port: 9091
           protocol: TCP
+        - port: 9093
+          protocol: TCP   # alertmanager
         - port: 9100
-          protocol: TCP
+          protocol: TCP   # node-exporter
+        - port: 9153
+          protocol: TCP   # coredns
         - port: 10250
-          protocol: TCP   # kubelet metrics
+          protocol: TCP   # kubelet metrics / operator
+
+---
+## Allow Prometheus to scrape targets INSIDE the observability namespace.
+## Without this, default-deny-all denies ingress on kube-state-metrics,
+## node-exporter, grafana, alertmanager and the operator, and every one of those
+## scrape targets reports "context deadline exceeded" even though Prometheus is
+## permitted to egress to the port.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape-ingress
+  namespace: observability
+  labels:
+    managed-by: sentinelops
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
 
 ---
 ## Allow AlertManager to POST to the incident-normalizer webhook

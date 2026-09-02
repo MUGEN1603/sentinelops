@@ -32,4 +32,3 @@ Thumbs.db
 secrets.local.yaml
 *.db-shm
 *.db-wal
-.planning/

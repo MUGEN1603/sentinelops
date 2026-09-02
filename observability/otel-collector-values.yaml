@@ -7,13 +7,22 @@ mode: daemonset
 image:
   repository: otel/opentelemetry-collector-contrib
 
-# Give the collector permission to access kubelet and k8s API
+# Give the collector permission to access kubelet and k8s API.
+# infra/rbac.yaml is the single source of truth for this collector's RBAC: it owns
+# the ServiceAccount, ClusterRole and ClusterRoleBinding. So `create: false` here
+# and reference that SA by name.
+# Do NOT let the chart create its own: it generates
+# "otel-collector-opentelemetry-collector", which the ClusterRoleBinding in
+# rbac.yaml does not reference, leaving the collector without the nodes/stats and
+# k8sattributes permissions it needs. Setting create:true alongside rbac.yaml also
+# makes `helm upgrade` fail with an ownership-metadata error.
 serviceAccount:
-  create: true
+  create: false
+  name: otel-collector
   annotations: {}
 
 clusterRole:
-  create: true
+  create: false
   rules:
     - apiGroups: [""]
       resources: ["nodes", "nodes/stats", "nodes/proxy", "pods", "namespaces", "services", "endpoints"]

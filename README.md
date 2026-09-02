@@ -68,6 +68,97 @@ uvicorn incident-normalizer.webhook_server:app --port 8000 --reload
 python -m pytest tests/ -v
 ```
 
+## Makefile Targets
+
+For common local development workflows, use the Makefile:
+
+```bash
+# Show all available targets
+make help
+
+# Start local dependencies (Qdrant + OPA)
+make up
+
+# Show full cluster + service status
+make status
+
+# Forward Prometheus (9090) and Loki (3100) to localhost
+make port-forward
+
+# Load/reload OPA remediation policy
+make opa-load
+
+# Run all unit tests with coverage
+make test
+
+# Run fast unit tests only (no live services needed)
+make test-unit
+
+# Stop and remove local containers
+make down
+```
+
+## Project Structure
+
+```
+sentinelops/
+├── agents/                 # LangGraph multi-agent pipeline
+│   ├── contracts.py        # Pydantic models (Incident, AgentState)
+│   ├── graph.py            # LangGraph workflow definition
+│   ├── triage_agent.py     # Classifies incident severity/type
+│   ├── diagnosis_agent.py  # RAG-backed root-cause analysis
+│   ├── remediation_agent.py# Proposes fixes + generates patches
+│   ├── policy_review_agent.py # OPA evaluation + Slack notify
+│   ├── gitops_bridge.py    # GitHub PR creation for approved remediations
+│   └── checkpointer_config.py # SQLite checkpoint persistence
+├── incident-normalizer/    # AlertManager webhook receiver
+│   ├── webhook_server.py   # FastAPI server (enrichment + dispatch)
+│   └── Dockerfile          # Container image
+├── memory/                 # Qdrant vector memory layer
+│   └── qdrant_client.py    # Embedding + search operations
+├── sample-app/             # Fault-injectable test application
+│   ├── app.py              # FastAPI app with /metrics, /health
+│   ├── Dockerfile
+│   └── k8s-manifest.yaml
+├── policies/               # OPA Rego policies
+│   ├── remediation.rego    # Main policy (allow/deny/require_approval)
+│   └── remediation_test.rego # Policy unit tests
+├── gitops/                 # Argo CD application + manifests
+│   ├── argocd-app.yaml     # Argo CD Application (selfHeal=true)
+│   └── manifests/
+│       └── sample-app-deployment.yaml
+├── infra/                  # Cluster bootstrap
+│   ├── kind-config.yaml    # 3-node kind cluster
+│   ├── namespaces.yaml     # observability, apps, argocd
+│   ├── rbac.yaml           # ClusterRole/RoleBinding for agents
+│   ├── network-policies.yaml
+│   └── secrets.yaml        # SealedSecret template
+├── observability/          # Helm values for monitoring stack
+│   ├── prometheus-values.yaml
+│   ├── loki-values.yaml
+│   ├── otel-collector-values.yaml
+│   └── alert-rules.yaml
+├── tests/                  # Pytest suite
+│   ├── test_incident_replay.py
+│   ├── test_state_durability.py
+│   ├── test_selfheal.py
+│   └── test_e2e_verification.py
+├── docs/
+│   ├── architecture.md     # Detailed architecture documentation
+│   ├── runbook.md          # 12-point validation checklist
+│   └── qdrant-migration.md
+├── .github/workflows/ci.yaml # CI/CD pipeline
+├── final-e2e-check.sh      # End-to-end verification script
+├── requirements.txt        # Pinned dependencies
+├── Makefile               # Local development targets
+└── .env.example           # Environment variable template
+```
+
+## Documentation
+
+- [Architecture Details](docs/architecture.md) — Component diagram, data flows, agent responsibilities
+- [Runbook / Validation Checklist](docs/runbook.md) — 12-point end-to-end verification steps
+
 ## Validation
 
 See `docs/runbook.md` for the 12-point end-to-end validation checklist.
