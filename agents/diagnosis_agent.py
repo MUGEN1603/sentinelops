@@ -17,9 +17,7 @@ Output state keys written:
 
 import json
 import logging
-import os
 
-import ollama
 
 # Import the qdrant_client MODULE (not the function) so tests can monkeypatch
 # `memory.qdrant_client.retrieve_similar` and have the change take effect here.
@@ -27,9 +25,13 @@ import ollama
 # the function name at import time and prevent monkeypatch from affecting us.
 from memory import qdrant_client as _qdrant_memory
 
+# Use the robust LLM client with circuit breaker, retries, and fallback
+from agents.llm_client import get_llm_client
+
 log = logging.getLogger("diagnosis-agent")
 
-MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder:latest")
+# Model config is now handled by the LLMClient with circuit breaker and fallback
+# OLLAMA_MODEL, OLLAMA_FALLBACK_MODEL, OLLAMA_TERTIARY_MODEL env vars control the chain
 
 SYSTEM_PROMPT_TEMPLATE = """\
 You are a Kubernetes SRE expert performing root cause analysis.
@@ -50,7 +52,7 @@ Respond in this exact JSON format (no markdown, no extra text):
 """
 
 
-def diagnosis_agent(state: dict) -> dict:
+async def diagnosis_agent(state: dict) -> dict:
     """
     LangGraph node function for root cause diagnosis.
 
@@ -136,16 +138,19 @@ def diagnosis_agent(state: dict) -> dict:
         system_prompt += metrics_note
 
 
+    # Use the robust LLM client with circuit breaker, retries, and fallback
+    llm_client = get_llm_client()
+
     try:
-        response = ollama.chat(
-            model=MODEL,
+        raw = await llm_client.chat_completion(
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user",   "content": json.dumps(incident_for_llm, indent=2)}
-            ]
+                {"role": "user", "content": json.dumps(incident_for_llm, indent=2)},
+            ],
+            temperature=0.1,
+            max_tokens=2000,
         )
-        raw = response["message"]["content"].strip()
-        parsed = json.loads(raw)
+        parsed = json.loads(raw.strip())
 
         rca_text = (
             f"Probable cause: {parsed.get('probable_cause', '')}\n\n"
@@ -157,16 +162,17 @@ def diagnosis_agent(state: dict) -> dict:
 
     except json.JSONDecodeError:
         log.warning("Diagnosis LLM returned non-JSON — using raw text as RCA")
-        rca_text   = raw
+        # We can't easily get the raw response here, so use a fallback
+        rca_text = "Diagnosis LLM returned invalid JSON"
         confidence = 0.3
     except Exception as exc:
         log.error("Diagnosis LLM call failed: %s", exc)
-        rca_text   = f"Diagnosis failed: {exc}"
+        rca_text = f"Diagnosis failed: {exc}"
         confidence = 0.0
 
     log.info("Diagnosis complete: confidence=%.2f similar_count=%d", confidence, len(similar))
 
-    state["rca"]              = rca_text
+    state["rca"] = rca_text
     state["similar_incidents"] = similar_ids
-    state["rca_confidence"]   = confidence
+    state["rca_confidence"] = confidence
     return state

@@ -19,14 +19,14 @@ Output state keys written:
 
 import json
 import logging
-import os
-import re
 
-import ollama
+# Use the robust LLM client with circuit breaker, retries, and fallback
+from agents.llm_client import get_llm_client
 
 log = logging.getLogger("remediation-agent")
 
-MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder:latest")
+# Model config is now handled by the LLMClient with circuit breaker and fallback
+# OLLAMA_MODEL, OLLAMA_FALLBACK_MODEL, OLLAMA_TERTIARY_MODEL env vars control the chain
 
 SYSTEM_PROMPT = """\
 You are a Kubernetes remediation engineer.
@@ -64,7 +64,7 @@ RISK_LEVELS = {
 }
 
 
-def remediation_agent(state: dict) -> dict:
+async def remediation_agent(state: dict) -> dict:
     """
     LangGraph node function for remediation proposal.
 
@@ -91,17 +91,19 @@ def remediation_agent(state: dict) -> dict:
         "current_metrics": numeric_metrics,
     }
 
+    # Use the robust LLM client with circuit breaker, retries, and fallback
+    llm_client = get_llm_client()
 
     try:
-        response = ollama.chat(
-            model=MODEL,
+        raw = await llm_client.chat_completion(
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user",   "content": json.dumps(prompt_content, indent=2)}
-            ]
+                {"role": "user", "content": json.dumps(prompt_content, indent=2)}
+            ],
+            temperature=0.1,
+            max_tokens=3000,
         )
-        raw = response["message"]["content"].strip()
-        parsed = json.loads(raw)
+        parsed = json.loads(raw.strip())
 
         patch_type     = parsed.get("patch_type", "other")
         proposed_patch = parsed.get("patch_yaml", "").strip()
@@ -121,11 +123,10 @@ def remediation_agent(state: dict) -> dict:
 
     except json.JSONDecodeError:
         log.warning("Remediation LLM returned non-JSON — attempting regex extraction")
-        # Try to extract a YAML block from the raw response
-        yaml_match = re.search(r"```yaml\n(.*?)```", raw, re.DOTALL)
-        proposed_patch = yaml_match.group(1).strip() if yaml_match else raw
-        patch_type     = "other"
-        risk_level     = "high"   # unknown structure → conservatively high
+        # We can't easily get the raw response here, so use a fallback
+        proposed_patch = "# REJECTED: LLM returned invalid JSON. Manual remediation required."
+        patch_type     = "rejected"
+        risk_level     = "high"
         rollback_hint  = "Manually revert the change via Git."
     except Exception as exc:
         log.error("Remediation LLM call failed: %s", exc)

@@ -1,0 +1,169 @@
+## infra/tls-certificates.yaml — cert-manager TLS certificates for internal services
+## Apply after cert-manager is installed: kubectl apply -f infra/tls-certificates.yaml
+##
+## Creates TLS certificates for:
+##   - incident-normalizer (webhook server)
+##   - Loki (log ingestion)
+##   - Prometheus (metrics scrape)
+##   - OPA (policy evaluation)
+##   - AlertManager (webhook egress)
+
+---
+## Incident Normalizer TLS certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: incident-normalizer-tls
+  namespace: default
+spec:
+  secretName: incident-normalizer-tls
+  duration: 2160h # 90 days
+  renewBefore: 360h # 15 days
+  subject:
+    organizations:
+      - SentinelOps
+  commonName: incident-normalizer.default.svc.cluster.local
+  dnsNames:
+    - incident-normalizer.default.svc.cluster.local
+    - incident-normalizer.default.svc
+    - localhost
+  ipAddresses:
+    - 127.0.0.1
+  issuerRef:
+    name: sentinelops-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+
+---
+## Loki TLS certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: loki-tls
+  namespace: observability
+spec:
+  secretName: loki-tls
+  duration: 2160h
+  renewBefore: 360h
+  subject:
+    organizations:
+      - SentinelOps
+  commonName: loki.observability.svc.cluster.local
+  dnsNames:
+    - loki.observability.svc.cluster.local
+    - loki.observability.svc
+  issuerRef:
+    name: sentinelops-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+
+---
+## Prometheus TLS certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: prometheus-tls
+  namespace: observability
+spec:
+  secretName: prometheus-tls
+  duration: 2160h
+  renewBefore: 360h
+  subject:
+    organizations:
+      - SentinelOps
+  commonName: prometheus.observability.svc.cluster.local
+  dnsNames:
+    - prometheus.observability.svc.cluster.local
+    - prometheus.observability.svc
+    - kube-prometheus-kube-prome-prometheus.observability.svc.cluster.local
+  issuerRef:
+    name: sentinelops-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+
+---
+## AlertManager TLS certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: alertmanager-tls
+  namespace: observability
+spec:
+  secretName: alertmanager-tls
+  duration: 2160h
+  renewBefore: 360h
+  subject:
+    organizations:
+      - SentinelOps
+  commonName: alertmanager.observability.svc.cluster.local
+  dnsNames:
+    - alertmanager.observability.svc.cluster.local
+    - alertmanager.observability.svc
+    - kube-prometheus-kube-prome-alertmanager.observability.svc.cluster.local
+  issuerRef:
+    name: sentinelops-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+
+---
+## OPA TLS certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: opa-tls
+  namespace: default
+spec:
+  secretName: opa-tls
+  duration: 2160h
+  renewBefore: 360h
+  subject:
+    organizations:
+      - SentinelOps
+  commonName: opa.default.svc.cluster.local
+  dnsNames:
+    - opa.default.svc.cluster.local
+    - opa.default.svc
+  issuerRef:
+    name: sentinelops-ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth

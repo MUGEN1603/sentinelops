@@ -1,0 +1,106 @@
+# chaos/rbac.yaml — LitmusChaos RBAC for SentinelOps experiments
+#
+# Apply: kubectl apply -f chaos/rbac.yaml
+#
+# Creates the ServiceAccount, ClusterRole, and ClusterRoleBinding
+# needed for LitmusChaos to run experiments in the apps namespace.
+
+---
+## ServiceAccount for LitmusChaos experiments
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: litmus-admin
+  namespace: apps
+  labels:
+    managed-by: sentinelops
+    app: litmus
+
+---
+## ClusterRole with permissions for chaos experiments
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: litmus-chaos-role
+  labels:
+    managed-by: sentinelops
+rules:
+  # Core resources needed for chaos experiments
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "nodes", "namespaces", "events", "services", "configmaps", "secrets"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  # Apps resources for deployments/statefulsets
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  # LitmusChaos CRDs
+  - apiGroups: ["litmuschaos.io"]
+    resources: ["chaosengines", "chaosexperiments", "chaosresults", "chaosschedules"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  # Batch resources for jobs/cronjobs
+  - apiGroups: ["batch"]
+    resources: ["jobs", "cronjobs"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]
+  # Networking for network policies
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies", "ingresses"]
+    verbs: ["get", "list", "watch"]
+  # Metrics for Prometheus
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+---
+## ClusterRoleBinding for litmus-admin ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: litmus-admin-binding
+  labels:
+    managed-by: sentinelops
+subjects:
+  - kind: ServiceAccount
+    name: litmus-admin
+    namespace: apps
+roleRef:
+  kind: ClusterRole
+  name: litmus-chaos-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+## RoleBinding for apps namespace (more restrictive if needed)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: litmus-admin-binding-apps
+  namespace: apps
+  labels:
+    managed-by: sentinelops
+subjects:
+  - kind: ServiceAccount
+    name: litmus-admin
+    namespace: apps
+roleRef:
+  kind: ClusterRole
+  name: litmus-chaos-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+## Optional: Restricted Role for specific experiments only
+## Uncomment if you want to restrict to specific experiment types
+# apiVersion: rbac.authorization.k8s.io/v1
+# kind: ClusterRole
+# metadata:
+#   name: litmus-chaos-restricted
+#   labels:
+#     managed-by: sentinelops
+# rules:
+#   - apiGroups: [""]
+#     resources: ["pods", "pods/log"]
+#     verbs: ["get", "list", "watch", "delete"]
+#   - apiGroups: ["apps"]
+#     resources: ["deployments"]
+#     verbs: ["get", "list", "watch", "patch"]
+#   - apiGroups: ["litmuschaos.io"]
+#     resources: ["chaosengines", "chaosresults"]
+#     verbs: ["get", "list", "watch", "create", "delete", "patch", "update"]

@@ -1,0 +1,273 @@
+# chaos/experiments.yaml — LitmusChaos experiments for SentinelOps resilience validation
+#
+# Prerequisites:
+#   1. Install LitmusChaos:
+#      kubectl apply -f https://litmuschaos.github.io/litmus/litmus-2.12.0.yaml
+#   2. Verify installation:
+#      kubectl get pods -n litmus
+#
+# Apply experiments:
+#   kubectl apply -f chaos/experiments.yaml
+#
+# Run an experiment:
+#   kubectl annotate chaosengine sample-app-pod-kill chaosengine.litmuschaos.io/inject="true" --overwrite
+#   OR use the LitmusChaos UI: kubectl port-forward -n litmus svc/litmusportal-frontend 9091:9091
+#
+# Monitor:
+#   kubectl get chaosresults -n apps
+#   kubectl logs -n litmus -l app=chaos-experiment
+
+---
+## Experiment 1: Pod Kill (validates self-heal via Argo CD)
+## Kills the sample-app pod and verifies Argo CD restores it
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: sample-app-pod-kill
+  namespace: apps
+spec:
+  appinfo:
+    appns: apps
+    applabel: "app=sample-app"
+    appkind: deployment
+  chaosServiceAccount: litmus-admin
+  monitoring: true
+  jobCleanUpPolicy: delete
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "30"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: FORCE
+              value: "false"
+            - name: PODS_AFFECTED_PERC
+              value: "100"
+
+---
+## Experiment 2: Container Kill (validates container restart)
+## Kills the container inside the pod, Kubernetes restarts it
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: sample-app-container-kill
+  namespace: apps
+spec:
+  appinfo:
+    appns: apps
+    applabel: "app=sample-app"
+    appkind: deployment
+  chaosServiceAccount: litmus-admin
+  monitoring: true
+  jobCleanUpPolicy: delete
+  experiments:
+    - name: container-kill
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "30"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: CONTAINER_RUNTIME
+              value: "containerd"
+            - name: SOCKET_PATH
+              value: "/run/containerd/containerd.sock"
+
+---
+## Experiment 3: CPU Hog (validates CPU limit enforcement)
+## Stresses CPU to verify Prometheus alerts and OPA policy
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: sample-app-cpu-hog
+  namespace: apps
+spec:
+  appinfo:
+    appns: apps
+    applabel: "app=sample-app"
+    appkind: deployment
+  chaosServiceAccount: litmus-admin
+  monitoring: true
+  jobCleanUpPolicy: delete
+  experiments:
+    - name: pod-cpu-hog
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: CPU_CORES
+              value: "1"
+
+---
+## Experiment 4: Memory Hog (validates OOMKill and self-heal)
+## Consumes memory to trigger OOMKill and verify remediation pipeline
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: sample-app-memory-hog
+  namespace: apps
+spec:
+  appinfo:
+    appns: apps
+    applabel: "app=sample-app"
+    appkind: deployment
+  chaosServiceAccount: litmus-admin
+  monitoring: true
+  jobCleanUpPolicy: delete
+  experiments:
+    - name: pod-memory-hog
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: MEMORY_CONSUMPTION_PERCENTAGE
+              value: "80"
+
+---
+## Experiment 5: Network Latency (validates latency alerts)
+## Adds network latency to verify /slow endpoint alerts
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: sample-app-network-latency
+  namespace: apps
+spec:
+  appinfo:
+    appns: apps
+    applabel: "app=sample-app"
+    appkind: deployment
+  chaosServiceAccount: litmus-admin
+  monitoring: true
+  jobCleanUpPolicy: delete
+  experiments:
+    - name: pod-network-latency
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: LATENCY
+              value: "2000"  # 2 seconds
+            - name: JITTER
+              value: "500"
+
+---
+## Experiment 6: Network Partition (validates network policies)
+## Partitions the pod from Loki/Prometheus to verify resilience
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: sample-app-network-partition
+  namespace: apps
+spec:
+  appinfo:
+    appns: apps
+    applabel: "app=sample-app"
+    appkind: deployment
+  chaosServiceAccount: litmus-admin
+  monitoring: true
+  jobCleanUpPolicy: delete
+  experiments:
+    - name: pod-network-partition
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: NETWORK_PARTITION_TYPE
+              value: "egress"
+            - name: DESTINATION_IPS
+              value: "10.0.0.0/8"  # Block access to cluster services
+
+---
+## Experiment 7: Disk Fill (validates disk pressure alerts)
+## Fills disk to verify Prometheus disk pressure alerts
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: sample-app-disk-fill
+  namespace: apps
+spec:
+  appinfo:
+    appns: apps
+    applabel: "app=sample-app"
+    appkind: deployment
+  chaosServiceAccount: litmus-admin
+  monitoring: true
+  jobCleanUpPolicy: delete
+  experiments:
+    - name: disk-fill
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "60"
+            - name: CHAOS_INTERVAL
+              value: "10"
+            - name: FILL_PERCENTAGE
+              value: "85"
+            - name: EPHEMERAL_STORAGE_LIMIT
+              value: "100Mi"
+
+---
+## Experiment 8: Node Drain (validates pod rescheduling)
+## Drains the worker node to verify pod rescheduling on healthy node
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: sample-app-node-drain
+  namespace: apps
+spec:
+  appinfo:
+    appns: apps
+    applabel: "app=sample-app"
+    appkind: deployment
+  chaosServiceAccount: litmus-admin
+  monitoring: true
+  jobCleanUpPolicy: delete
+  experiments:
+    - name: node-drain
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "120"
+            - name: NODE_LABEL
+              value: "node-role.kubernetes.io/worker=true"
+
+---
+## ─────────────────────────────────────────────────────────────────────────────
+## Validation Checklist for Each Experiment
+## ─────────────────────────────────────────────────────────────────────────────
+##
+## For each experiment, verify:
+## 1. ✅ Alert fires in Prometheus/AlertManager
+## 2. ✅ Incident Normalizer receives webhook and enriches with logs/metrics
+## 3. ✅ LangGraph pipeline completes (triage → diagnosis → remediation → policy)
+## 4. ✅ OPA policy evaluates remediation (allow/deny with reasons)
+## 5. ✅ If allowed: GitHub PR created with YAML patch
+## 6. ✅ If denied: Slack notification sent (if configured)
+## 7. ✅ Argo CD syncs the change (self-heal)
+## 8. ✅ Cluster state matches Git (no drift)
+## 9. ✅ Metrics/logs available in Grafana/Loki
+## 10. ✅ RCA stored in Qdrant for future retrieval
+##
+## Run all experiments sequentially:
+##   for exp in $(kubectl get chaosengine -n apps -o name | cut -d/ -f2); do
+##     kubectl annotate chaosengine $exp chaosengine.litmuschaos.io/inject="true" --overwrite -n apps
+##     sleep 180  # Wait for experiment + self-heal
+##   done

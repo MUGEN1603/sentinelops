@@ -42,6 +42,7 @@ Exit check:
     "
 """
 
+import asyncio
 import logging
 from typing import Any
 
@@ -55,6 +56,45 @@ from agents.remediation_agent import remediation_agent
 from agents.policy_review_agent import policy_review_agent
 
 log = logging.getLogger("agent-graph")
+
+
+# ─── Sync wrappers for async agents ─────────────────────────────────────────────
+# LangGraph nodes must be sync functions. Wrap async agents with asyncio.run().
+
+def _run_async(coro):
+    """Run async coroutine in a new event loop (for sync LangGraph nodes)."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        # If we're already in an event loop, create a new thread to run the coroutine
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(asyncio.run, coro)
+            return future.result()
+    else:
+        return asyncio.run(coro)
+
+
+def triage_agent_sync(state: dict) -> dict:
+    """Sync wrapper for async triage_agent."""
+    return _run_async(triage_agent(state))
+
+
+def diagnosis_agent_sync(state: dict) -> dict:
+    """Sync wrapper for async diagnosis_agent."""
+    return _run_async(diagnosis_agent(state))
+
+
+def remediation_agent_sync(state: dict) -> dict:
+    """Sync wrapper for async remediation_agent."""
+    return _run_async(remediation_agent(state))
+
+
+def policy_review_agent_sync(state: dict) -> dict:
+    """Sync wrapper for async policy_review_agent."""
+    return _run_async(policy_review_agent(state))
 
 
 def build_graph() -> Any:  # type: ignore[return-value]
@@ -80,10 +120,10 @@ def build_graph() -> Any:  # type: ignore[return-value]
     workflow = StateGraph(GraphState)
 
     # ── Register nodes ────────────────────────────────────────────────────────
-    workflow.add_node("triage",        triage_agent)       # type: ignore[type-var]
-    workflow.add_node("diagnosis",     diagnosis_agent)    # type: ignore[type-var]
-    workflow.add_node("remediation",   remediation_agent)  # type: ignore[type-var]
-    workflow.add_node("policy_review", policy_review_agent) # type: ignore[type-var]
+    workflow.add_node("triage",        triage_agent_sync)       # type: ignore[type-var]
+    workflow.add_node("diagnosis",     diagnosis_agent_sync)    # type: ignore[type-var]
+    workflow.add_node("remediation",   remediation_agent_sync)  # type: ignore[type-var]
+    workflow.add_node("policy_review", policy_review_agent)     # type: ignore[type-var]  # sync agent
 
     # ── Define edges (linear pipeline) ───────────────────────────────────────
     workflow.set_entry_point("triage")

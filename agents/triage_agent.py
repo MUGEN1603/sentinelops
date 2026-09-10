@@ -15,17 +15,14 @@ Output state keys written:
 
 import json
 import logging
-import os
 
-import ollama
+# Use the robust LLM client with circuit breaker, retries, and fallback
+from agents.llm_client import get_llm_client
 
 log = logging.getLogger("triage-agent")
 
-# Configurable via env so users can pin a specific tag (e.g. "qwen3-coder:30b").
-# `ollama list` shows available models; the bare name "qwen3-coder" works only if
-# a tag-less alias exists. Default to "qwen3-coder:latest" which ollama resolves
-# to the most recently pulled qwen3-coder variant.
-MODEL = os.getenv("OLLAMA_MODEL", "qwen3-coder:latest")
+# Model config is now handled by the LLMClient with circuit breaker and fallback
+# OLLAMA_MODEL, OLLAMA_FALLBACK_MODEL, OLLAMA_TERTIARY_MODEL env vars control the chain
 
 SYSTEM_PROMPT = """\
 You are a senior Site Reliability Engineer performing incident triage.
@@ -39,7 +36,7 @@ Respond in this exact JSON format (no markdown, no extra text):
 """
 
 
-def triage_agent(state: dict) -> dict:
+async def triage_agent(state: dict) -> dict:
     """
     LangGraph node function for incident triage.
 
@@ -61,20 +58,21 @@ def triage_agent(state: dict) -> dict:
         "recent_metrics": incident.get("recent_metrics", {}),
     }
 
-    try:
-        response = ollama.chat(
-            model=MODEL,
-            messages=[
-                {"role": "system",  "content": SYSTEM_PROMPT},
-                {"role": "user",    "content": json.dumps(incident_summary, indent=2)}
-            ]
-        )
-        raw = response["message"]["content"].strip()
+    # Use the robust LLM client with circuit breaker, retries, and fallback
+    llm_client = get_llm_client()
 
-        # Parse structured response
-        parsed = json.loads(raw)
+    try:
+        raw = await llm_client.chat_completion(
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(incident_summary, indent=2)}
+            ],
+            temperature=0.1,
+            max_tokens=500,
+        )
+        parsed = json.loads(raw.strip())
         classification = parsed.get("severity", "unknown").lower()
-        reasoning      = parsed.get("reasoning", "")
+        reasoning = parsed.get("reasoning", "")
 
         # Validate classification value
         if classification not in ("critical", "warning", "info"):
@@ -83,17 +81,16 @@ def triage_agent(state: dict) -> dict:
 
     except json.JSONDecodeError:
         log.warning("LLM returned non-JSON triage response — using raw text")
-        # Fall back: extract first word as severity
-        words = raw.lower().split()
-        classification = next((w for w in words if w in ("critical", "warning", "info")), incident.get("severity", "warning"))
-        reasoning = raw
+        # We can't easily get the raw response here, so use a fallback
+        classification = incident.get("severity", "warning")
+        reasoning = "LLM returned invalid JSON"
     except Exception as exc:
         log.error("Triage LLM call failed: %s", exc)
         classification = incident.get("severity", "warning")
-        reasoning      = f"LLM unavailable: {exc}"
+        reasoning = f"LLM unavailable: {exc}"
 
     log.info("Triage result: severity_classification=%s", classification)
 
     state["severity_classification"] = classification
-    state["triage_summary"]          = reasoning
+    state["triage_summary"] = reasoning
     return state

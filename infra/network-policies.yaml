@@ -178,6 +178,7 @@ spec:
 ## NOTE: this only covers EGRESS from Prometheus. Targets inside the observability
 ## namespace additionally need an ingress allow (see allow-prometheus-scrape-ingress
 ## below) because default-deny-all isolates ingress too.
+## Includes both HTTP and HTTPS ports for TLS-enabled targets.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -201,10 +202,14 @@ spec:
           protocol: TCP   # kube-state-metrics self-metrics
         - port: 9090
           protocol: TCP
+        - port: 9443
+          protocol: TCP   # Prometheus HTTPS
         - port: 9091
           protocol: TCP
         - port: 9093
-          protocol: TCP   # alertmanager
+          protocol: TCP   # alertmanager HTTP
+        - port: 9443
+          protocol: TCP   # AlertManager HTTPS
         - port: 9100
           protocol: TCP   # node-exporter
         - port: 9153
@@ -237,7 +242,7 @@ spec:
 
 ---
 ## Allow AlertManager to POST to the incident-normalizer webhook
-## host.docker.internal resolves to the host — egress on 8000 to any destination
+## Supports both HTTP (8000) and HTTPS (8443) for TLS
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -255,9 +260,12 @@ spec:
     - ports:
         - port: 8000
           protocol: TCP
+        - port: 8443
+          protocol: TCP
 
 ---
 ## Allow Loki to receive Promtail pushes, and respond to query requests
+## Includes both HTTP (3100) and HTTPS (3101) for TLS
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -277,10 +285,13 @@ spec:
       ports:
         - port: 3100
           protocol: TCP
+        - port: 3101
+          protocol: TCP
 
 ---
 ## Allow Promtail DaemonSet to push logs to Loki
-## Without this, default-deny-all in observability blocks Promtail egress to Loki:3100
+## Without this, default-deny-all in observability blocks Promtail egress to Loki
+## Supports both HTTP (3100) and HTTPS (3101) for TLS
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -301,6 +312,8 @@ spec:
               app: loki
       ports:
         - port: 3100
+          protocol: TCP
+        - port: 3101
           protocol: TCP
 
 ---
@@ -385,7 +398,7 @@ spec:
   policyTypes:
     - Egress
   egress:
-    ## Loki
+    ## Loki (HTTP + HTTPS)
     - to:
         - namespaceSelector:
             matchLabels:
@@ -396,7 +409,9 @@ spec:
       ports:
         - port: 3100
           protocol: TCP
-    ## Prometheus
+        - port: 3101
+          protocol: TCP
+    ## Prometheus (HTTP + HTTPS)
     - to:
         - namespaceSelector:
             matchLabels:
@@ -407,10 +422,13 @@ spec:
       ports:
         - port: 9090
           protocol: TCP
+        - port: 9443
+          protocol: TCP
 
 ---
 ## Allow sentinelops-agent to reach Qdrant, OPA, Ollama (all on host in local dev)
 ## and GitHub API on port 443 for PR creation.
+## Includes HTTPS ports for TLS-enabled services.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -429,9 +447,11 @@ spec:
     - ports:
         - port: 6333
           protocol: TCP
-    ## OPA (local docker: 8181)
+    ## OPA (local docker: 8181 HTTP + 8182 HTTPS)
     - ports:
         - port: 8181
+          protocol: TCP
+        - port: 8182
           protocol: TCP
     ## Ollama (local: 11434)
     - ports:

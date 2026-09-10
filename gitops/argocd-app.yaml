@@ -43,14 +43,29 @@ spec:
     automated:
       prune: true        # Remove resources that are in the cluster but not in Git
       selfHeal: true     # MANDATORY: revert any manual drift on the live cluster
+      allowEmpty: false  # Prevent accidental deletion of all resources
     syncOptions:
       - CreateNamespace=true        # Create the apps namespace if it doesn't exist
       - PrunePropagationPolicy=foreground
       - PruneLast=true              # Prune after all other resources are synced
       - ApplyOutOfSyncOnly=true     # Only apply resources that differ from Git
+      - Validate=true               # Server-side validation before apply
+      - Replace=true                # Allow replacing immutable fields
 
       # NOTE: We do NOT use ignoreDifferences on /spec/replicas. The repo does NOT
       # deploy an HPA, so /spec/replicas is owned exclusively by Git — Argo CD must
       # observe and correct manual `kubectl scale` drift. Adding ignoreDifferences
       # here would silently disable selfHeal for replica count, breaking the
       # test_selfheal.py validation.
+
+    # Fast sync interval for rapid self-heal (default is 3 minutes)
+    # 30 seconds balances API load with fast drift detection
+    syncWindows:
+      - kind: Automated
+        schedule: "*/1 * * * *"  # Every minute for self-heal
+        duration: 24h
+        manual: false
+        resources:
+          - group: apps
+            kind: Deployment
+            name: sample-app
