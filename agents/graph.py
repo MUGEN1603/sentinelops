@@ -123,7 +123,7 @@ def build_graph() -> Any:  # type: ignore[return-value]
     workflow.add_node("triage",        triage_agent_sync)       # type: ignore[type-var]
     workflow.add_node("diagnosis",     diagnosis_agent_sync)    # type: ignore[type-var]
     workflow.add_node("remediation",   remediation_agent_sync)  # type: ignore[type-var]
-    workflow.add_node("policy_review", policy_review_agent)     # type: ignore[type-var]  # sync agent
+    workflow.add_node("policy_review", policy_review_agent_sync)  # type: ignore[type-var]
 
     # ── Define edges (linear pipeline) ───────────────────────────────────────
     workflow.set_entry_point("triage")

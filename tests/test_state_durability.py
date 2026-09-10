@@ -68,13 +68,18 @@ class TestStateDurability:
 
     @pytest.fixture(autouse=True)
     def mock_llm(self, monkeypatch):
-        """Mock ollama.chat to return deterministic responses per agent."""
+        """Mock ollama.AsyncClient.chat to return deterministic responses per agent.
+        
+        Targets the AsyncClient.chat method used by agents.llm_client, not ollama.chat.
+        """
         call_counter = {"n": 0}
 
-        def mock_chat(model, messages):
+        async def mock_chat(*args, **kwargs):
             call_counter["n"] += 1
             # Determine which agent is calling based on system prompt content
-            system = messages[0]["content"].lower()
+            # Extract messages from kwargs or args
+            messages = kwargs.get("messages") or (args[1] if len(args) > 1 else [])
+            system = messages[0]["content"].lower() if messages else ""
             if "classify severity" in system or "triage" in system:
                 content = MOCK_TRIAGE_RESPONSE
             elif "root cause" in system or "diagnose" in system:
@@ -85,7 +90,8 @@ class TestStateDurability:
                 content = '{"result": "mock"}'
             return {"message": {"content": content}}
 
-        monkeypatch.setattr("ollama.chat", mock_chat)
+        # Mock the AsyncClient.chat method used by agents.llm_client
+        monkeypatch.setattr("ollama.AsyncClient.chat", mock_chat)
         self.call_counter = call_counter
 
     @pytest.fixture(autouse=True)

@@ -25,7 +25,7 @@ import json
 import logging
 import os
 
-import requests
+import httpx
 
 from agents.contracts import GitOpsChange
 
@@ -35,7 +35,7 @@ OPA_URL      = os.getenv("OPA_URL", "http://localhost:8181")
 SLACK_WEBHOOK = os.getenv("SLACK_WEBHOOK_URL", "")   # optional — set to notify on deny
 
 
-def query_opa(action: str, risk_level: str, namespace: str) -> tuple[bool, list[str]]:
+async def query_opa(action: str, risk_level: str, namespace: str) -> tuple[bool, list[str]]:
     """
     Submit a policy query to OPA and return (allowed, deny_reasons).
 
@@ -48,51 +48,50 @@ def query_opa(action: str, risk_level: str, namespace: str) -> tuple[bool, list[
             "namespace":  namespace,
         }
     }
-    try:
-        resp = requests.post(
-            f"{OPA_URL}/v1/data/sentinelops/remediation/allow",
-            json=opa_input,
-            timeout=5
-        )
-        resp.raise_for_status()
-        allowed = bool(resp.json().get("result", False))
-        log.info("OPA decision: allowed=%s action=%s risk=%s ns=%s",
-                 allowed, action, risk_level, namespace)
-
-        # Also fetch deny reasons if rejected
-        reasons: list[str] = []
-        if not allowed:
-            deny_resp = requests.post(
-                f"{OPA_URL}/v1/data/sentinelops/remediation/deny_reason",
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            resp = await client.post(
+                f"{OPA_URL}/v1/data/sentinelops/remediation/allow",
                 json=opa_input,
-                timeout=5
             )
-            # OPA's Rego `deny_reason["..."] if {...}` produces a SET, which OPA
-            # serializes as a JSON array (list). Older/non-set rule shapes may
-            # produce an object (dict). Handle both so we never crash on shape.
-            result = deny_resp.json().get("result", None)
-            if isinstance(result, list):
-                # Sets of strings come back as a list of strings.
-                reasons = [str(r) for r in result]
-            elif isinstance(result, dict):
-                reasons = list(result.keys())
-            elif result is None:
-                reasons = []
-            else:
-                reasons = [str(result)]
+            resp.raise_for_status()
+            allowed = bool(resp.json().get("result", False))
+            log.info("OPA decision: allowed=%s action=%s risk=%s ns=%s",
+                     allowed, action, risk_level, namespace)
 
-        return allowed, reasons
+            # Also fetch deny reasons if rejected
+            reasons: list[str] = []
+            if not allowed:
+                deny_resp = await client.post(
+                    f"{OPA_URL}/v1/data/sentinelops/remediation/deny_reason",
+                    json=opa_input,
+                )
+                # OPA's Rego `deny_reason["..."] if {...}` produces a SET, which OPA
+                # serializes as a JSON array (list). Older/non-set rule shapes may
+                # produce an object (dict). Handle both so we never crash on shape.
+                result = deny_resp.json().get("result", None)
+                if isinstance(result, list):
+                    # Sets of strings come back as a list of strings.
+                    reasons = [str(r) for r in result]
+                elif isinstance(result, dict):
+                    reasons = list(result.keys())
+                elif result is None:
+                    reasons = []
+                else:
+                    reasons = [str(result)]
 
-    except requests.exceptions.ConnectionError:
-        # OPA unreachable → FAIL CLOSED (deny by default)
-        log.error("OPA unreachable at %s — failing closed (deny)", OPA_URL)
-        return False, ["OPA server unreachable — failing closed"]
-    except Exception as exc:
-        log.error("OPA query failed: %s", exc)
-        return False, [f"OPA query error: {exc}"]
+            return allowed, reasons
+
+        except httpx.ConnectError:
+            # OPA unreachable → FAIL CLOSED (deny by default)
+            log.error("OPA unreachable at %s — failing closed (deny)", OPA_URL)
+            return False, ["OPA server unreachable — failing closed"]
+        except Exception as exc:
+            log.error("OPA query failed: %s", exc)
+            return False, [f"OPA query error: {exc}"]
 
 
-def notify_slack_rejection(incident_id: str, reasons: list[str]) -> None:
+async def notify_slack_rejection(incident_id: str, reasons: list[str]) -> None:
     """Send a Slack notification when a remediation is rejected."""
     if not SLACK_WEBHOOK:
         return
@@ -103,14 +102,15 @@ def notify_slack_rejection(incident_id: str, reasons: list[str]) -> None:
             f"Reasons:\n" + "\n".join(f"  • {r}" for r in reasons)
         )
     }
-    try:
-        requests.post(SLACK_WEBHOOK, json=message, timeout=5)
-        log.info("Slack rejection notification sent for incident=%s", incident_id)
-    except Exception as exc:
-        log.warning("Slack notification failed: %s", exc)
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            await client.post(SLACK_WEBHOOK, json=message)
+            log.info("Slack rejection notification sent for incident=%s", incident_id)
+        except Exception as exc:
+            log.warning("Slack notification failed: %s", exc)
 
 
-def policy_review_agent(state: dict) -> dict:
+async def policy_review_agent(state: dict) -> dict:
     """
     LangGraph node function for OPA policy review and PR creation.
 
@@ -127,7 +127,7 @@ def policy_review_agent(state: dict) -> dict:
              incident.get("id"), patch_type, risk_level, namespace)
 
     # ── OPA evaluation ────────────────────────────────────────────────────────
-    allowed, reasons = query_opa(patch_type, risk_level, namespace)
+    allowed, reasons = await query_opa(patch_type, risk_level, namespace)
 
     state["policy_allowed"] = allowed
     state["policy_reasons"] = reasons
@@ -135,7 +135,7 @@ def policy_review_agent(state: dict) -> dict:
     if not allowed:
         log.warning("Remediation DENIED for incident=%s reasons=%s",
                     incident.get("id"), reasons)
-        notify_slack_rejection(incident.get("id", "unknown"), reasons)
+        await notify_slack_rejection(incident.get("id", "unknown"), reasons)
         state["gitops_change"] = None
         return state
 
@@ -151,7 +151,7 @@ def policy_review_agent(state: dict) -> dict:
         file_path  = "gitops/manifests/sample-app-deployment.yaml"
         new_content = state.get("proposed_patch", "")
 
-        pr_url = open_remediation_pr(
+        pr_url = await open_remediation_pr(
             repo_name=repo_name,
             incident_id=incident["id"],
             file_path=file_path,
@@ -189,7 +189,7 @@ def policy_review_agent(state: dict) -> dict:
             f"{json.dumps(incident.get('alert_labels', {}))} "
             f"{' '.join(incident.get('recent_logs', [])[:10])}"
         )
-        store_incident(
+        await store_incident(
             incident_id=incident["id"],
             text=incident_text,
             rca=state.get("rca", "")[:500],

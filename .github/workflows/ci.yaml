@@ -35,6 +35,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Install and start Ollama
+        run: |
+          # Install Ollama
+          curl -fsSL https://ollama.com/install.sh | sh
+          # Start Ollama server in background
+          ollama serve > /tmp/ollama.log 2>&1 &
+          sleep 5
+          # Pull the required model
+          ollama pull qwen3-coder:latest
+
       - name: Lint with ruff
         run: |
           pip install ruff
