@@ -113,13 +113,13 @@ sentinelops/
 │   └── checkpointer_config.py # SQLite checkpoint persistence
 ├── incident-normalizer/    # AlertManager webhook receiver
 │   ├── webhook_server.py   # FastAPI server (enrichment + dispatch)
-│   └── Dockerfile          # Container image
+│   ├── Dockerfile          # Container image
+│   └── requirements.txt    # Minimal deps for Docker build
 ├── memory/                 # Qdrant vector memory layer
 │   └── qdrant_client.py    # Embedding + search operations
 ├── sample-app/             # Fault-injectable test application
 │   ├── app.py              # FastAPI app with /metrics, /health
-│   ├── Dockerfile
-│   └── k8s-manifest.yaml
+│   └── Dockerfile
 ├── policies/               # OPA Rego policies
 │   ├── remediation.rego    # Main policy (allow/deny/require_approval)
 │   └── remediation_test.rego # Policy unit tests
